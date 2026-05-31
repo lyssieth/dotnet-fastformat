@@ -41,11 +41,12 @@ static class GitIgnoreFilter
                     process.StandardInput.Write('\0');
                 }
                 process.StandardInput.Close();
+                var outputTask = process.StandardOutput.ReadToEndAsync();
                 process.WaitForExit();
 
                 if (process.ExitCode == 0 || process.ExitCode == 1)
                 {
-                    var output = process.StandardOutput.ReadToEnd();
+                    var output = outputTask.Result;
                     if (!string.IsNullOrEmpty(output))
                     {
                         foreach (var line in output.Split('\0', StringSplitOptions.RemoveEmptyEntries))

@@ -10,11 +10,17 @@
     <PackageId>FastFormat</PackageId>
     <Version>0.1.0</Version>
     <Description>A fast C# formatter that respects .editorconfig rules.</Description>
+    <Authors>Lyssieth</Authors>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>dotnet;format;csharp;editorconfig;formatter</PackageTags>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.3.0" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>
