@@ -34,6 +34,9 @@ class Program
                     if (i + 1 < args.Length)
                         stdinFilePath = args[++i];
                     break;
+                case "--version":
+                    PrintVersion();
+                    return 0;
                 case "--help":
                 case "-h":
                     PrintHelp();
@@ -71,6 +74,12 @@ class Program
         return result;
     }
 
+    static void PrintVersion()
+    {
+        var version = typeof(Program).Assembly.GetName().Version;
+        Console.WriteLine($"FastFormat {version}");
+    }
+
     static void PrintHelp()
     {
         Console.WriteLine("FastFormat - A fast C# formatter that respects .editorconfig");
@@ -83,6 +92,7 @@ class Program
         Console.WriteLine("  -v, --verbose          Show detailed output");
         Console.WriteLine("  -p, --parallel N       Number of parallel workers (default: processor count)");
         Console.WriteLine("  --stdin-filepath PATH  File path to use for .editorconfig resolution in stdin mode");
+        Console.WriteLine("  --version              Show version");
         Console.WriteLine("  -h, --help             Show this help");
     }
 }

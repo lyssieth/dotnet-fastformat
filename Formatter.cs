@@ -1,3 +1,4 @@
+using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Formatting;
@@ -95,7 +96,7 @@ class Formatter
 
     private async Task<bool> FormatFileAsync(string filePath, CancellationToken ct)
     {
-        var text = await File.ReadAllTextAsync(filePath, ct);
+        var (text, encoding, hasBom) = await ReadFileWithEncodingAsync(filePath, ct);
         var formatted = await FormatTextAsync(text, filePath);
         if (formatted == null)
             return false;
@@ -110,12 +111,56 @@ class Formatter
             return true;
         }
 
-        await File.WriteAllTextAsync(filePath, formatted, ct);
+        await WriteFileWithEncodingAsync(filePath, formatted, encoding, hasBom, ct);
 
         if (_verbose)
             Console.WriteLine($"Formatted: {filePath}");
 
         return true;
+    }
+
+    private static async Task<(string Text, Encoding Encoding, bool HasBom)> ReadFileWithEncodingAsync(string filePath, CancellationToken ct)
+    {
+        var bytes = await File.ReadAllBytesAsync(filePath, ct);
+        var encoding = DetectEncoding(bytes, out var bomLength);
+        var text = encoding.GetString(bytes, bomLength, bytes.Length - bomLength);
+        return (text, encoding, bomLength > 0);
+    }
+
+    private static async Task WriteFileWithEncodingAsync(string filePath, string text, Encoding encoding, bool hasBom, CancellationToken ct)
+    {
+        var preamble = hasBom ? encoding.GetPreamble() : Array.Empty<byte>();
+        var textBytes = encoding.GetBytes(text);
+        var result = new byte[preamble.Length + textBytes.Length];
+        preamble.CopyTo(result, 0);
+        textBytes.CopyTo(result, preamble.Length);
+        await File.WriteAllBytesAsync(filePath, result, ct);
+    }
+
+    private static Encoding DetectEncoding(byte[] bytes, out int bomLength)
+    {
+        bomLength = 0;
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+        {
+            bomLength = 3;
+            return Encoding.UTF8;
+        }
+        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+        {
+            bomLength = 2;
+            return Encoding.BigEndianUnicode;
+        }
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+        {
+            bomLength = 2;
+            return Encoding.Unicode;
+        }
+        if (bytes.Length >= 4 && bytes[0] == 0x00 && bytes[1] == 0x00 && bytes[2] == 0xFE && bytes[3] == 0xFF)
+        {
+            bomLength = 4;
+            return Encoding.UTF32;
+        }
+        return Encoding.UTF8;
     }
 
     private async Task<string?> FormatTextAsync(string text, string? filePath)
