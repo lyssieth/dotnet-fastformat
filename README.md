@@ -10,6 +10,10 @@ In benchmarks formatting 50 C# files:
 - **`dotnet format`**: ~4.0s
 
 That's roughly **6x faster**.
+Run `benchmark.sh` yourself to reproduce:
+```bash
+./benchmark.sh 100 200
+```
 
 ## Installation
 
