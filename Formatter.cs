@@ -1,6 +1,8 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Formatting;
 using Microsoft.CodeAnalysis.Formatting;
+using Microsoft.CodeAnalysis.Options;
 using Microsoft.CodeAnalysis.Text;
 
 namespace FastFormat;
@@ -135,21 +137,99 @@ class Formatter
             return null;
         }
 
-        // Use AdhocWorkspace to get editorconfig options for this file path
+        // Build formatting options from .editorconfig
         var workspace = new AdhocWorkspace();
-        var project = workspace.AddProject("temp", LanguageNames.CSharp);
-        var documentInfo = DocumentInfo.Create(
-            DocumentId.CreateNewId(project.Id),
-            Path.GetFileName(filePath ?? "stdin.cs"),
-            filePath: filePath,
-            loader: TextLoader.From(TextAndVersion.Create(sourceText, VersionStamp.Default)));
-        var document = workspace.AddDocument(documentInfo);
+        var options = workspace.Options;
 
-        var options = await document.GetOptionsAsync();
+        if (filePath != null)
+        {
+            var editorConfig = EditorConfigParser.GetOptionsForFile(filePath);
+            options = ApplyEditorConfigOptions(options, editorConfig);
+        }
+
         var formattedRoot = Microsoft.CodeAnalysis.Formatting.Formatter.Format(root, workspace, options);
 
-        var formattedText = formattedRoot.GetText();
-        return formattedText.ToString();
+        var formattedText = formattedRoot.GetText().ToString();
+
+        // Handle insert_final_newline manually since Roslyn formatter doesn't always
+        if (filePath != null)
+        {
+            var editorConfig = EditorConfigParser.GetOptionsForFile(filePath);
+            if (editorConfig.InsertFinalNewline == true && !formattedText.EndsWith('\n'))
+                formattedText += "\n";
+            else if (editorConfig.InsertFinalNewline == false && formattedText.EndsWith('\n'))
+                formattedText = formattedText.TrimEnd('\n', '\r');
+        }
+
+        return formattedText;
+    }
+
+    private static OptionSet ApplyEditorConfigOptions(OptionSet options, EditorConfigOptions editorConfig)
+    {
+        if (editorConfig.IndentSize.HasValue)
+            options = options.WithChangedOption(FormattingOptions.IndentationSize, LanguageNames.CSharp, editorConfig.IndentSize.Value);
+
+        if (editorConfig.TabWidth.HasValue)
+            options = options.WithChangedOption(FormattingOptions.TabSize, LanguageNames.CSharp, editorConfig.TabWidth.Value);
+
+        if (editorConfig.UseTabs.HasValue)
+            options = options.WithChangedOption(FormattingOptions.UseTabs, LanguageNames.CSharp, editorConfig.UseTabs.Value);
+
+        if (editorConfig.NewLine != null)
+            options = options.WithChangedOption(FormattingOptions.NewLine, LanguageNames.CSharp, editorConfig.NewLine);
+
+        if (editorConfig.NewLineBeforeOpenBrace != null)
+        {
+            var value = editorConfig.NewLineBeforeOpenBrace.ToLowerInvariant();
+            var allBraces = new[]
+            {
+                CSharpFormattingOptions.NewLinesForBracesInTypes,
+                CSharpFormattingOptions.NewLinesForBracesInMethods,
+                CSharpFormattingOptions.NewLinesForBracesInProperties,
+                CSharpFormattingOptions.NewLinesForBracesInAccessors,
+                CSharpFormattingOptions.NewLinesForBracesInAnonymousMethods,
+                CSharpFormattingOptions.NewLinesForBracesInControlBlocks,
+                CSharpFormattingOptions.NewLinesForBracesInAnonymousTypes,
+                CSharpFormattingOptions.NewLinesForBracesInObjectCollectionArrayInitializers,
+                CSharpFormattingOptions.NewLinesForBracesInLambdaExpressionBody,
+            };
+
+            if (value == "none" || value == "")
+            {
+                foreach (var brace in allBraces)
+                    options = options.WithChangedOption(brace, false);
+            }
+            else if (value == "all")
+            {
+                foreach (var brace in allBraces)
+                    options = options.WithChangedOption(brace, true);
+            }
+            else
+            {
+                var parts = value.Split(',').Select(p => p.Trim()).ToHashSet();
+                foreach (var brace in allBraces)
+                    options = options.WithChangedOption(brace, false);
+
+                foreach (var part in parts)
+                {
+                    options = part switch
+                    {
+                        "types" => options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInTypes, true),
+                        "methods" => options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInMethods, true),
+                        "properties" => options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInProperties, true),
+                        "accessors" => options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInAccessors, true),
+                        "anonymous_methods" => options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInAnonymousMethods, true),
+                        "control_blocks" => options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInControlBlocks, true),
+                        "anonymous_types" => options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInAnonymousTypes, true),
+                        "object_collection_array_initializers" => options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInObjectCollectionArrayInitializers, true),
+                        "lambda_expression_body" => options.WithChangedOption(CSharpFormattingOptions.NewLinesForBracesInLambdaExpressionBody, true),
+                        _ => options
+                    };
+                }
+            }
+        }
+
+        return options;
     }
 
     private static List<string> FindFiles(List<string> paths)
