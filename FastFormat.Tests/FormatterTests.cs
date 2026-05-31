@@ -345,4 +345,135 @@ public class FormatterTests : IDisposable
             try { Directory.Delete(tempDir, recursive: true); } catch { }
         }
     }
+
+    [Fact]
+    public async Task Format_ActuallyRewritesFile()
+    {
+        var path = WriteFile("a.cs", "class C{\n}\n");
+        var original = File.ReadAllText(path);
+        var formatter = new Formatter(check: false, verbose: false, parallel: 1);
+        await formatter.RunAsync(new List<string> { path });
+        var rewritten = File.ReadAllText(path);
+        Assert.NotEqual(original, rewritten);
+    }
+
+    [Fact]
+    public async Task CheckMode_DoesNotRewriteFile()
+    {
+        var path = WriteFile("a.cs", "class C{\n}\n");
+        var original = File.ReadAllText(path);
+        var formatter = new Formatter(check: true, verbose: false, parallel: 1);
+        await formatter.RunAsync(new List<string> { path });
+        var afterCheck = File.ReadAllText(path);
+        Assert.Equal(original, afterCheck);
+    }
+
+    [Fact]
+    public async Task IncludePattern_WrongFilter_ChangesExitCode()
+    {
+        WriteFile("a.cs", "class A{\n}\n");
+        WriteFile("b.cs", "class B{\n}\n");
+        // Without include: both files are unformatted → exit 1
+        var formatterAll = new Formatter(check: true, verbose: false, parallel: 1);
+        var exitAll = await formatterAll.RunAsync(new List<string> { _tempDir });
+        Assert.Equal(1, exitAll);
+
+        // With include that matches nothing → exit 0
+        var formatterNone = new Formatter(check: true, verbose: false, parallel: 1, includes: new List<string> { "**/*.doesnotexist" });
+        var exitNone = await formatterNone.RunAsync(new List<string> { _tempDir });
+        Assert.Equal(0, exitNone);
+    }
+
+    [Fact]
+    public async Task ExcludePattern_WrongFilter_ChangesExitCode()
+    {
+        WriteFile("a.cs", "class A{\n}\n");
+        WriteFile("b.cs", "class B{\n}\n");
+        // Without exclude: both files are unformatted → exit 1
+        var formatterAll = new Formatter(check: true, verbose: false, parallel: 1);
+        var exitAll = await formatterAll.RunAsync(new List<string> { _tempDir });
+        Assert.Equal(1, exitAll);
+
+        // With exclude that matches everything → exit 0
+        var formatterNone = new Formatter(check: true, verbose: false, parallel: 1, excludes: new List<string> { "**/*.cs" });
+        var exitNone = await formatterNone.RunAsync(new List<string> { _tempDir });
+        Assert.Equal(0, exitNone);
+    }
+
+    [Fact]
+    public async Task Mixed_ParseErrorAndCheckMode_Returns2()
+    {
+        WriteFile("good.cs", "class C{\n}\n");
+        WriteFile("bad.cs", "class C { void M() { }");
+        var formatter = new Formatter(check: true, verbose: false, parallel: 1);
+        var exit = await formatter.RunAsync(new List<string> { _tempDir });
+        // Parse errors are more serious than formatting changes → exit 2
+        Assert.Equal(2, exit);
+    }
+
+    [Fact]
+    public async Task Cli_DocumentedExample_CheckSingleFile()
+    {
+        var path = WriteFile("Program.cs", "class C{\n}\n");
+        var exit = await Program.Main(new[] { path });
+        Assert.Equal(0, exit);
+        var content = File.ReadAllText(path);
+        Assert.Contains("class C", content);
+        Assert.Contains("\n", content);
+    }
+
+    [Fact]
+    public async Task Cli_DocumentedExample_CheckDirectory()
+    {
+        WriteFile("a.cs", "class A{\n}\n");
+        WriteFile(".editorconfig", "[*.cs]\n");
+        var exit = await Program.Main(new[] { "--check", _tempDir });
+        Assert.Equal(1, exit);
+    }
+
+    [Fact]
+    public async Task Cli_DocumentedExample_ExcludePattern()
+    {
+        WriteFile("src/a.cs", "class A{\n}\n");
+        WriteFile("src/b.generated.cs", "class B{\n}\n");
+        WriteFile("src/.editorconfig", "[*.cs]\n");
+        var exit = await Program.Main(new[] { "--check", "--exclude", "**/*.generated.cs", Path.Combine(_tempDir, "src") });
+        // a.cs is unformatted and not excluded; excluded files don't count
+        Assert.Equal(1, exit);
+    }
+
+    [Fact]
+    public async Task Cli_DocumentedExample_StdinFilepath()
+    {
+        WriteFile("src/.editorconfig", "[*.cs]\nindent_size = 2\n");
+        var originalIn = Console.In;
+        var originalOut = Console.Out;
+        try
+        {
+            var input = new StringReader("class C\n{\n    void M() { }\n}\n");
+            var output = new StringWriter();
+            Console.SetIn(input);
+            Console.SetOut(output);
+            var stdinPath = Path.Combine(_tempDir, "src", "a.cs");
+            var exit = await Program.Main(new[] { "--stdin-filepath", stdinPath });
+            Assert.Equal(0, exit);
+            var result = output.ToString();
+            Assert.Contains("  void M()", result);
+        }
+        finally
+        {
+            Console.SetIn(originalIn);
+            Console.SetOut(originalOut);
+        }
+    }
+
+    [Fact]
+    public async Task Cli_DocumentedExample_Parallel()
+    {
+        WriteFile("a.cs", "class A{\n}\n");
+        WriteFile("b.cs", "class B{\n}\n");
+        WriteFile(".editorconfig", "[*.cs]\n");
+        var exit = await Program.Main(new[] { "-p", "2", _tempDir });
+        Assert.Equal(0, exit);
+    }
 }
