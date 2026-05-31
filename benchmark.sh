@@ -91,7 +91,18 @@ benchmark_cmd() {
             echo "  Run $run: ${elapsed}ms"
         fi
     done
+    BENCHMARK_RESULT=$best
     echo "$label: ${best}ms (best of 5)"
+}
+
+print_ratio() {
+    local fast_ms=$1
+    local slow_ms=$2
+    if [[ $fast_ms -le 0 ]]; then
+        return
+    fi
+    local tenths=$(((slow_ms * 10 + fast_ms / 2) / fast_ms))
+    printf 'Ratio: %d.%dx faster\n' "$((tenths / 10))" "$((tenths % 10))"
 }
 
 echo "=== FastFormat Benchmark ==="
@@ -119,9 +130,11 @@ setup_cold() {
 }
 
 benchmark_cmd "FastFormat" setup_cold run_fastformat
+cold_fastformat_ms=$BENCHMARK_RESULT
 
 if $HAS_DOTNET_FORMAT; then
     benchmark_cmd "dotnet format (cold)" setup_cold run_dotnet_format
+    print_ratio "$cold_fastformat_ms" "$BENCHMARK_RESULT"
 fi
 
 echo ""
@@ -139,12 +152,14 @@ setup_noop() {
 }
 
 benchmark_cmd "FastFormat" setup_noop run_fastformat
+noop_fastformat_ms=$BENCHMARK_RESULT
 
 if $HAS_DOTNET_FORMAT; then
     setup_dir
     for i in $(seq 1 $FILE_COUNT); do generate_file $i; done
     $DOTNET_FORMAT "$TEMP_DIR" >/dev/null 2>&1 || true
     benchmark_cmd "dotnet format (hot)" setup_noop run_dotnet_format
+    print_ratio "$noop_fastformat_ms" "$BENCHMARK_RESULT"
 fi
 
 echo ""
@@ -153,9 +168,11 @@ echo ""
 echo "--- Check mode ---"
 
 benchmark_cmd "FastFormat --check" setup_cold run_fastformat_check
+check_fastformat_ms=$BENCHMARK_RESULT
 
 if $HAS_DOTNET_FORMAT; then
     benchmark_cmd "dotnet format --verify-no-changes" setup_cold run_dotnet_format_check
+    print_ratio "$check_fastformat_ms" "$BENCHMARK_RESULT"
 fi
 
 echo ""
