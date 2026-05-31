@@ -14,6 +14,8 @@
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/lyssieth/dotnet-fastformat</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/lyssieth/dotnet-fastformat</PackageProjectUrl>
     <PackageTags>dotnet;format;csharp;editorconfig;formatter</PackageTags>
   </PropertyGroup>
 
