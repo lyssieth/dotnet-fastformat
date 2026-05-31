@@ -1,6 +1,8 @@
 # FastFormat
 
-A fast C# formatter that respects `.editorconfig` rules. Designed to be significantly faster than `dotnet format` for pure formatting tasks.
+A fast C# formatter that supports common formatting-related `.editorconfig` options. Designed for rapid development with format-on-save workflows.
+
+FastFormat is **not a replacement for `dotnet format`**. It is a fast intermediary between *no formatting* and *waiting several seconds for a full `dotnet format` run*. Use it when you want formatting feedback quickly, then rely on `dotnet format` (or CI) for comprehensive validation.
 
 ## Performance
 
