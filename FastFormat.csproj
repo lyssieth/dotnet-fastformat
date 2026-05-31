@@ -19,6 +19,9 @@
     <PackageTags>dotnet;format;csharp;editorconfig;formatter</PackageTags>
   </PropertyGroup>
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>FastFormat.Tests</_Parameter1>
+    </AssemblyAttribute>
     <Compile Remove="FastFormat.Tests\**" />
   </ItemGroup>
 

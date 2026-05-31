@@ -3,7 +3,7 @@ using GlobExpressions;
 
 namespace FastFormat;
 
-public class EditorConfigOptions
+internal class EditorConfigOptions
 {
     public bool? UseTabs { get; set; }
     public int? IndentSize { get; set; }
@@ -22,7 +22,7 @@ public class EditorConfigOptions
     public bool? SeparateImportDirectiveGroups { get; set; }
 }
 
-public class EditorConfigParser
+internal class EditorConfigParser
 {
     public static EditorConfigOptions GetOptionsForFile(string filePath)
     {
@@ -196,13 +196,13 @@ public class EditorConfigParser
     }
 }
 
-public class EditorConfigFile
+internal class EditorConfigFile
 {
     public bool IsRoot { get; set; }
     public List<EditorConfigSection> Sections { get; } = new();
 }
 
-public class EditorConfigSection
+internal class EditorConfigSection
 {
     public string Glob { get; set; } = "*";
     public Dictionary<string, string> Options { get; } = new(StringComparer.OrdinalIgnoreCase);

@@ -10,14 +10,14 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace FastFormat;
 
-public class FormatterResult
+internal class FormatterResult
 {
     public int FilesProcessed { get; set; }
     public int FilesChanged { get; set; }
     public int FilesWithErrors { get; set; }
 }
 
-public class Formatter
+internal class Formatter
 {
     private readonly bool _check;
     private readonly bool _verbose;
@@ -91,17 +91,17 @@ public class Formatter
             }
         });
 
-        if (_check && result.FilesChanged > 0)
-        {
-            Console.WriteLine($"Formatting issues found in {result.FilesChanged} file(s).");
-            return 1;
-        }
-
         var action = _check ? "checked" : "formatted";
         Console.WriteLine($"{action} {result.FilesProcessed} file(s), {result.FilesChanged} changed.");
 
         if (result.FilesWithErrors > 0)
             return 2;
+
+        if (_check && result.FilesChanged > 0)
+        {
+            Console.WriteLine($"Formatting issues found in {result.FilesChanged} file(s).");
+            return 1;
+        }
 
         return 0;
     }
@@ -110,9 +110,6 @@ public class Formatter
     {
         var (text, encoding, hasBom) = await ReadFileWithEncodingAsync(filePath, ct);
         var formatted = await FormatTextAsync(text, filePath);
-        if (text == formatted)
-            return false;
-
         if (text == formatted)
             return false;
 
@@ -152,6 +149,17 @@ public class Formatter
     private static Encoding DetectEncoding(byte[] bytes, out int bomLength)
     {
         bomLength = 0;
+        // Check 4-byte BOMs before 2-byte BOMs to avoid misidentifying UTF-32 as UTF-16.
+        if (bytes.Length >= 4 && bytes[0] == 0x00 && bytes[1] == 0x00 && bytes[2] == 0xFE && bytes[3] == 0xFF)
+        {
+            bomLength = 4;
+            return new UTF32Encoding(bigEndian: true, byteOrderMark: true);
+        }
+        if (bytes.Length >= 4 && bytes[0] == 0xFF && bytes[1] == 0xFE && bytes[2] == 0x00 && bytes[3] == 0x00)
+        {
+            bomLength = 4;
+            return Encoding.UTF32;
+        }
         if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
         {
             bomLength = 3;
@@ -166,11 +174,6 @@ public class Formatter
         {
             bomLength = 2;
             return Encoding.Unicode;
-        }
-        if (bytes.Length >= 4 && bytes[0] == 0x00 && bytes[1] == 0x00 && bytes[2] == 0xFE && bytes[3] == 0xFF)
-        {
-            bomLength = 4;
-            return Encoding.UTF32;
         }
         return Encoding.UTF8;
     }
