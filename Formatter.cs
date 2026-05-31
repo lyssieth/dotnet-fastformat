@@ -249,7 +249,12 @@ internal class Formatter
         _workspacePool.Add(workspace);
     }
 
-    private async Task<string> FormatTextAsync(string text, string? filePath)
+    internal Task<string> FormatTextAsync(string text, string? filePath)
+    {
+        return FormatTextAsync(text, filePath, applyDocumentPostProcessing: true);
+    }
+
+    private async Task<string> FormatTextAsync(string text, string? filePath, bool applyDocumentPostProcessing)
     {
         var sourceText = SourceText.From(text);
 
@@ -302,31 +307,35 @@ internal class Formatter
 
             var formattedText = formattedRoot.GetText().ToString();
 
-            // Handle insert_final_newline manually since Roslyn formatter doesn't always
-            var endsWithNewline = !string.IsNullOrEmpty(formattedText) &&
-                (formattedText[^1] == '\n' || formattedText[^1] == '\r');
-            var shouldInsertFinalNewline = editorConfig?.InsertFinalNewline != false;
-            if (shouldInsertFinalNewline && !endsWithNewline)
+            if (applyDocumentPostProcessing)
             {
-                var newline = editorConfig?.NewLine ?? "\n";
-                formattedText += newline;
-            }
-            else if (!shouldInsertFinalNewline && endsWithNewline)
-            {
-                formattedText = formattedText.TrimEnd('\n', '\r');
+                // Handle insert_final_newline manually since Roslyn formatter doesn't always
+                var endsWithNewline = !string.IsNullOrEmpty(formattedText) &&
+                    (formattedText[^1] == '\n' || formattedText[^1] == '\r');
+                var shouldInsertFinalNewline = editorConfig?.InsertFinalNewline != false;
+                if (shouldInsertFinalNewline && !endsWithNewline)
+                {
+                    var newline = editorConfig?.NewLine ?? "\n";
+                    formattedText += newline;
+                }
+                else if (!shouldInsertFinalNewline && endsWithNewline)
+                {
+                    formattedText = formattedText.TrimEnd('\n', '\r');
+                }
+
+                // Handle trim_trailing_whitespace manually
+                if (editorConfig?.TrimTrailingWhitespace == true)
+                {
+                    formattedText = System.Text.RegularExpressions.Regex.Replace(formattedText, @"[ \t]+(\r?\n|\r)", "$1");
+                    formattedText = formattedText.TrimEnd(' ', '\t');
+                }
+                // Normalize line endings if configured
+                if (!string.IsNullOrEmpty(editorConfig?.NewLine))
+                {
+                    formattedText = formattedText.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", editorConfig.NewLine);
+                }
             }
 
-            // Handle trim_trailing_whitespace manually
-            if (editorConfig?.TrimTrailingWhitespace == true)
-            {
-                formattedText = System.Text.RegularExpressions.Regex.Replace(formattedText, @"[ \t]+(\r?\n|\r)", "$1");
-                formattedText = formattedText.TrimEnd(' ', '\t');
-            }
-            // Normalize line endings if configured
-            if (!string.IsNullOrEmpty(editorConfig?.NewLine))
-            {
-                formattedText = formattedText.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", editorConfig.NewLine);
-            }
             return formattedText;
         }
         finally

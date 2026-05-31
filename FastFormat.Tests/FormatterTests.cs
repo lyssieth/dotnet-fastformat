@@ -247,6 +247,26 @@ public class FormatterTests : IDisposable
         var exit = await Program.Main(new[] { "--chek", "src/" });
         Assert.Equal(1, exit);
     }
+
+    [Fact]
+    public async Task Cli_Help_IncludesLspMode()
+    {
+        var originalOut = Console.Out;
+        try
+        {
+            var output = new StringWriter();
+            Console.SetOut(output);
+
+            var exit = await Program.Main(new[] { "--help" });
+
+            Assert.Equal(0, exit);
+            Assert.Contains("--lsp", output.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+    }
     [Fact]
     public async Task Cli_MissingParallelValue_Returns1()
     {

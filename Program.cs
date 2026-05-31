@@ -13,6 +13,7 @@ public class Program
         bool verbose = false;
         bool force = false;
         bool cache = false;
+        bool lsp = false;
         int? parallel = null;
         string? stdinFilePath = null;
 
@@ -34,6 +35,9 @@ public class Program
                     break;
                 case "--cache":
                     cache = true;
+                    break;
+                case "--lsp":
+                    lsp = true;
                     break;
                 case "--parallel":
                 case "-p":
@@ -69,6 +73,20 @@ public class Program
                     paths.Add(arg);
                     break;
             }
+        }
+
+        if (lsp)
+        {
+            using var lspCts = new CancellationTokenSource();
+            Console.CancelKeyPress += (sender, e) =>
+            {
+                e.Cancel = true;
+                lspCts.Cancel();
+            };
+
+            using var lspFormatter = new LspFormatterService();
+            var server = new LspServer(Console.OpenStandardInput(), Console.OpenStandardOutput(), lspFormatter);
+            return await server.RunAsync(lspCts.Token);
         }
 
         // Detect stdin mode: explicit "-" or piped input with no paths
@@ -183,6 +201,7 @@ public class Program
         Console.WriteLine("  --exclude PATTERN      Exclude files matching glob pattern (repeatable)");
         Console.WriteLine("  --stdin-filepath PATH  File path to use for .editorconfig resolution in stdin mode");
         Console.WriteLine("  --cache                Enable content-hash cache (requires git repo)");
+        Console.WriteLine("  --lsp                  Run as a stdio Language Server Protocol formatter");
         Console.WriteLine("  --force                Bypass project-directory safety check");
         Console.WriteLine("  --version              Show version");
         Console.WriteLine("  -h, --help             Show this help");

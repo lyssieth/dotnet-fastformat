@@ -56,12 +56,21 @@ dotnet-fastformat --force ~/some-random-dir/
 cat Program.cs | dotnet-fastformat
 cat Program.cs | dotnet-fastformat --stdin-filepath src/Program.cs
 
+# Long-running stdio LSP mode for editor format-on-save
+dotnet-fastformat --lsp
+
 # Verbose output
 dotnet-fastformat -v src/
 
 # Control parallelism
 dotnet-fastformat -p 8 src/
 ```
+
+## LSP Mode
+
+`dotnet-fastformat --lsp` starts a stdio Language Server Protocol server. It advertises full-document sync, `textDocument/formatting`, and `textDocument/rangeFormatting`, so editors can keep one FastFormat process alive and avoid paying Roslyn startup on every save.
+
+LSP mode never writes files directly. It returns `TextEdit[]` responses to the editor and uses `file://` document URIs for `.editorconfig` resolution. Full-document formatting integrates with the existing `.fastformat-cache`: if the current document hash is known to be formatted, FastFormat returns no edits without invoking Roslyn. The server also keeps a bounded in-memory cache for repeated formatting requests during the same session.
 
 ## Supported .editorconfig Options
 
