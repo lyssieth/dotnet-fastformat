@@ -40,6 +40,7 @@ class Formatter
     public async Task<int> RunAsync(List<string> paths)
     {
         var files = FindFiles(paths);
+        files = GitIgnoreFilter.FilterIgnoredFiles(files);
         var result = new FormatterResult();
 
         if (!files.Any())
@@ -254,7 +255,8 @@ class Formatter
                     var parts = dir.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                     if (parts.Any(p => p.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
                                        p.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
-                                       p.Equals("node_modules", StringComparison.OrdinalIgnoreCase)))
+                                       p.Equals("node_modules", StringComparison.OrdinalIgnoreCase) ||
+                                       p.Equals(".git", StringComparison.OrdinalIgnoreCase)))
                         continue;
 
                     files.Add(file);
