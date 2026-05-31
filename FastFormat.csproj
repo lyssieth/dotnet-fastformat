@@ -8,7 +8,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-fastformat</ToolCommandName>
     <PackageId>FastFormat</PackageId>
-    <Version>0.1.0</Version>
+    <Version>1.0.0</Version>
     <Description>A fast C# formatter that respects .editorconfig rules.</Description>
     <Authors>Lyssieth</Authors>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
