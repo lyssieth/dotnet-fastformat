@@ -27,6 +27,10 @@ dotnet-fastformat Program.cs
 # Check formatting without making changes
 dotnet-fastformat --check src/
 
+# Include/exclude patterns
+dotnet-fastformat --exclude "**/*.generated.cs" src/
+dotnet-fastformat --include "src/**/*.cs" --include "tests/**/*.cs" .
+
 # Stdin -> stdout
 cat Program.cs | dotnet-fastformat
 cat Program.cs | dotnet-fastformat --stdin-filepath src/Program.cs
@@ -45,7 +49,19 @@ dotnet-fastformat -p 8 src/
 - `tab_width`
 - `end_of_line`
 - `insert_final_newline`
+- `trim_trailing_whitespace`
 - `csharp_new_line_before_open_brace`
+- `csharp_new_line_before_catch`
+- `csharp_new_line_before_else`
+- `csharp_new_line_before_finally`
+- `csharp_new_line_before_members_in_object_initializers`
+- `csharp_new_line_between_query_expression_clauses`
+- `dotnet_sort_system_directives_first`
+
+## File Types
+
+- `.cs` — C# source files
+- `.csx` — C# script files
 
 ## Why is it faster?
 
@@ -53,3 +69,4 @@ dotnet-fastformat -p 8 src/
 - No semantic analysis
 - Parallel file processing
 - Direct `.editorconfig` parsing without heavy workspace machinery
+- Gitignore-aware file discovery
