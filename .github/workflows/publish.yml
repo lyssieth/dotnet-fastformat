@@ -6,12 +6,8 @@ on:
       - 'v*'
 
 jobs:
-  publish:
+  build-and-test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-
     steps:
       - uses: actions/checkout@v6
 
@@ -29,8 +25,116 @@ jobs:
       - name: Test
         run: dotnet test --configuration Release --no-build --no-restore
 
-      - name: Pack
+      - name: Pack pointer package
         run: dotnet pack --configuration Release --no-build --output ./artifacts
+
+      - name: Upload pointer package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-pointer
+          path: ./artifacts/*.nupkg
+
+  pack-linux-x64:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack linux-x64 AOT
+        run: dotnet pack --configuration Release -r linux-x64 --output ./artifacts
+
+      - name: Upload linux-x64 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-linux-x64
+          path: ./artifacts/*.nupkg
+
+  pack-any:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack any (CoreCLR fallback)
+        run: dotnet pack --configuration Release -r any -p:PublishAot=false --output ./artifacts
+
+      - name: Upload any package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-any
+          path: ./artifacts/*.nupkg
+
+  pack-windows:
+    runs-on: windows-latest
+    needs: build-and-test
+    strategy:
+      matrix:
+        rid: [win-x64, win-arm64]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack ${{ matrix.rid }} AOT
+        run: dotnet pack --configuration Release -r ${{ matrix.rid }} --output ./artifacts
+
+      - name: Upload ${{ matrix.rid }} package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.rid }}
+          path: ./artifacts/*.nupkg
+
+  pack-macos:
+    runs-on: macos-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack osx-arm64 AOT
+        run: dotnet pack --configuration Release -r osx-arm64 --output ./artifacts
+
+      - name: Upload osx-arm64 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-osx-arm64
+          path: ./artifacts/*.nupkg
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: [build-and-test, pack-linux-x64, pack-any, pack-windows, pack-macos]
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Download all packages
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: package-*
+          merge-multiple: true
 
       - name: NuGet login (OIDC)
         uses: NuGet/login@v1

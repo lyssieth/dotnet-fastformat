@@ -8,7 +8,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-fastformat</ToolCommandName>
     <PackageId>FastFormat</PackageId>
-    <Version>1.2.2</Version>
+    <Version>1.3.0</Version>
     <Description>A fast C# formatter that supports common formatting-related .editorconfig options.</Description>
     <Authors>Lyssieth</Authors>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
@@ -17,6 +17,10 @@
     <RepositoryUrl>https://github.com/lyssieth/dotnet-fastformat</RepositoryUrl>
     <PackageProjectUrl>https://github.com/lyssieth/dotnet-fastformat</PackageProjectUrl>
     <PackageTags>dotnet;format;csharp;editorconfig;formatter</PackageTags>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <ToolPackageRuntimeIdentifiers>linux-x64;linux-arm64;win-x64;win-arm64;osx-arm64;any</ToolPackageRuntimeIdentifiers>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
@@ -32,6 +36,13 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.3.0" />
     <PackageReference Include="System.IO.Hashing" Version="10.0.8" />
     <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Microsoft.CodeAnalysis.Workspaces" />
+    <TrimmerRootAssembly Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
+    <TrimmerRootAssembly Include="System.Composition.TypedParts" />
+    <TrimmerRootAssembly Include="System.Composition.Hosting" />
   </ItemGroup>
 
 </Project>
