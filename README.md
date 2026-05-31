@@ -6,15 +6,29 @@ FastFormat is **not a replacement for `dotnet format`**. It is a fast intermedia
 
 ## Performance
 
-In benchmarks formatting 50 C# files:
+`benchmark.sh` creates a synthetic C# project, builds FastFormat in Release mode, then runs best-of-5 timings against the compiled FastFormat binary and `dotnet format`.
 
-- **FastFormat**: ~0.7s
-- **`dotnet format`**: ~4.0s
+Recent local results on Linux with .NET 10:
 
-That's roughly **6x faster**.
-Run `benchmark.sh` yourself to reproduce:
+| Corpus | Mode | FastFormat | `dotnet format` | Ratio |
+| --- | --- | ---: | ---: | ---: |
+| 10 files × 50 props | Cold rewrite | 626ms | 4076ms | 6.5× |
+| 10 files × 50 props | No-op | 586ms | 3918ms | 6.7× |
+| 10 files × 50 props | Check | 625ms | 4021ms | 6.4× |
+| 100 files × 200 props | Cold rewrite | 1299ms | 6652ms | 5.1× |
+| 100 files × 200 props | No-op | 1008ms | 6455ms | 6.4× |
+| 100 files × 200 props | Check | 1312ms | 6639ms | 5.1× |
+| 200 files × 500 props | Cold rewrite | 3189ms | 14295ms | 4.5× |
+| 200 files × 500 props | No-op | 2139ms | 13409ms | 6.3× |
+| 200 files × 500 props | Check | 3076ms | 14810ms | 4.8× |
+
+Caveats: this is a synthetic corpus, not a substitute for benchmarking your real solution. `dotnet format` does MSBuild workspace loading and broader analysis; FastFormat intentionally skips that work to be a fast format-on-save/intermediate formatter.
+
+Run it yourself:
+
 ```bash
 ./benchmark.sh 100 200
+./benchmark.sh --verbose 200 500
 ```
 
 ## Installation
