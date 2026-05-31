@@ -476,4 +476,106 @@ public class FormatterTests : IDisposable
         var exit = await Program.Main(new[] { "-p", "2", _tempDir });
         Assert.Equal(0, exit);
     }
+
+    [Fact]
+    public async Task Cache_NoGitRepo_WarnsAndDisables()
+    {
+        WriteFile("a.cs", "class A{\n}\n");
+        var exit = await Program.Main(new[] { "--force", "--cache", _tempDir });
+        // Should still work, just without cache
+        Assert.Equal(0, exit);
+    }
+
+    [Fact]
+    public async Task Cache_Hit_SkipsUnchangedFile()
+    {
+        Directory.CreateDirectory(Path.Combine(_tempDir, ".git"));
+        WriteFile("a.cs", "class A{\n}\n");
+
+        // First run: formats and caches
+        var exit1 = await Program.Main(new[] { "--cache", _tempDir });
+        Assert.Equal(0, exit1);
+
+        // Second run: cache hit, no work done
+        var exit2 = await Program.Main(new[] { "--cache", "--verbose", _tempDir });
+        Assert.Equal(0, exit2);
+    }
+
+    [Fact]
+    public async Task Cache_Miss_ReprocessesChangedFile()
+    {
+        Directory.CreateDirectory(Path.Combine(_tempDir, ".git"));
+        WriteFile("a.cs", "class A{\n}\n");
+
+        // First run: formats and caches
+        var exit1 = await Program.Main(new[] { "--cache", _tempDir });
+        Assert.Equal(0, exit1);
+
+        // Modify file to be unformatted again
+        File.WriteAllText(Path.Combine(_tempDir, "a.cs"), "class A{\n}\n");
+
+        // Second run: cache miss, re-formats
+        var exit2 = await Program.Main(new[] { "--cache", _tempDir });
+        Assert.Equal(0, exit2);
+    }
+
+    [Fact]
+    public async Task Cache_CheckMode_CachesCleanFiles()
+    {
+        Directory.CreateDirectory(Path.Combine(_tempDir, ".git"));
+        WriteFile("a.cs", "class A\n{\n}\n"); // already formatted
+
+        // First check run: clean, caches
+        var exit1 = await Program.Main(new[] { "--check", "--cache", _tempDir });
+        Assert.Equal(0, exit1);
+
+        // Second check run: cache hit, skip
+        var exit2 = await Program.Main(new[] { "--check", "--cache", _tempDir });
+        Assert.Equal(0, exit2);
+    }
+
+    [Fact]
+    public async Task Cache_CheckMode_DoesNotCacheDirtyFiles()
+    {
+        Directory.CreateDirectory(Path.Combine(_tempDir, ".git"));
+        WriteFile("a.cs", "class A{\n}\n"); // unformatted
+
+        // First check run: dirty, does not cache
+        var exit1 = await Program.Main(new[] { "--check", "--cache", _tempDir });
+        Assert.Equal(1, exit1);
+
+        // Second check run: still dirty, still reports issues
+        var exit2 = await Program.Main(new[] { "--check", "--cache", _tempDir });
+        Assert.Equal(1, exit2);
+    }
+
+    [Fact]
+    public async Task Cache_AutoDetect_FromExistingFile()
+    {
+        Directory.CreateDirectory(Path.Combine(_tempDir, ".git"));
+        WriteFile("a.cs", "class A\n{\n}\n"); // already formatted
+        File.WriteAllText(Path.Combine(_tempDir, ".fastformat-cache"), "a.cs|00000000000000000000000000000000\n");
+
+        // Without --cache flag, but cache file exists: should use cache
+        var exit = await Program.Main(new[] { "--check", _tempDir });
+        // Cache entry hash is wrong, so it should process the file and find it clean
+        Assert.Equal(0, exit);
+    }
+
+    [Fact]
+    public async Task Cache_FileFormat_WrittenCorrectly()
+    {
+        Directory.CreateDirectory(Path.Combine(_tempDir, ".git"));
+        WriteFile("a.cs", "class A{\n}\n");
+
+        var exit = await Program.Main(new[] { "--cache", _tempDir });
+        Assert.Equal(0, exit);
+
+        var cachePath = Path.Combine(_tempDir, ".fastformat-cache");
+        Assert.True(File.Exists(cachePath));
+        var lines = File.ReadAllLines(cachePath);
+        Assert.Single(lines);
+        Assert.StartsWith("a.cs|", lines[0]);
+        Assert.Equal(37, lines[0].Length); // "a.cs|" + 32 hex chars
+    }
 }

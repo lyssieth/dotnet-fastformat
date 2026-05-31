@@ -6,21 +6,18 @@ FastFormat is **not a replacement for `dotnet format`**. It is a fast intermedia
 
 ## Performance
 
-`benchmark.sh` creates a synthetic C# project, builds FastFormat in Release mode, then runs best-of-5 timings against the compiled FastFormat binary and `dotnet format`.
+`benchmark.sh` creates a synthetic C# project, builds FastFormat in Release mode, attempts a NativeAOT publish, then compares against `dotnet format`.
 
-Recent local results on Linux with .NET 10:
+The benchmark covers four runs:
 
-| Corpus | Mode | FastFormat | `dotnet format` | Ratio |
-| --- | --- | ---: | ---: | ---: |
-| 10 files × 50 props | Cold rewrite | 626ms | 4076ms | 6.5× |
-| 10 files × 50 props | No-op | 586ms | 3918ms | 6.7× |
-| 10 files × 50 props | Check | 625ms | 4021ms | 6.4× |
-| 100 files × 200 props | Cold rewrite | 1299ms | 6652ms | 5.1× |
-| 100 files × 200 props | No-op | 1008ms | 6455ms | 6.4× |
-| 100 files × 200 props | Check | 1312ms | 6639ms | 5.1× |
-| 200 files × 500 props | Cold rewrite | 3189ms | 14295ms | 4.5× |
-| 200 files × 500 props | No-op | 2139ms | 13409ms | 6.3× |
-| 200 files × 500 props | Check | 3076ms | 14810ms | 4.8× |
+| Scenario | Setup |
+| --- | --- |
+| Cold | No `.git`, no cache, dirty files, format |
+| Dirty check | Dirty files, `--check` |
+| Clean check | Formatted files, `--check` |
+| Partial | Dirty files plus `.git`, warm `--cache`, dirty 50% of files, re-format with cache |
+
+If the NativeAOT publish succeeds and the published binary passes a smoke formatting run, the output includes a NativeAOT column. Current Roslyn Workspaces dependencies publish with AOT warnings but fail the smoke run, so NativeAOT is not enabled for packaging yet.
 
 Caveats: this is a synthetic corpus, not a substitute for benchmarking your real solution. `dotnet format` does MSBuild workspace loading and broader analysis; FastFormat intentionally skips that work to be a fast format-on-save/intermediate formatter.
 
@@ -28,7 +25,7 @@ Run it yourself:
 
 ```bash
 ./benchmark.sh 100 200
-./benchmark.sh --verbose 200 500
+./benchmark.sh --verbose 200 500 5
 ```
 
 ## Installation

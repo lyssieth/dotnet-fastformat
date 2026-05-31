@@ -1,6 +1,8 @@
+using System.Collections.Concurrent;
 using System.Text;
 using GlobExpressions;
 using System.Text.RegularExpressions;
+using System.IO.Hashing;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Formatting;
@@ -19,19 +21,23 @@ internal class FormatterResult
 
 internal class Formatter
 {
+    private static readonly ConcurrentBag<AdhocWorkspace> _workspacePool = new();
+
     private readonly bool _check;
     private readonly bool _verbose;
     private readonly int _parallel;
     private readonly List<string> _includes;
     private readonly List<string> _excludes;
+    private readonly bool _useCache;
 
-    public Formatter(bool check, bool verbose, int? parallel, List<string>? includes = null, List<string>? excludes = null)
+    public Formatter(bool check, bool verbose, int? parallel, List<string>? includes = null, List<string>? excludes = null, bool useCache = false)
     {
         _check = check;
         _verbose = verbose;
         _parallel = parallel ?? Environment.ProcessorCount;
         _includes = includes ?? new List<string>();
         _excludes = excludes ?? new List<string>();
+        _useCache = useCache;
     }
 
     public async Task<int> RunStdinAsync(string? filePath, CancellationToken cancellationToken = default)
@@ -65,13 +71,33 @@ internal class Formatter
         if (_verbose)
             Console.WriteLine($"Found {files.Count} C# file(s)");
 
+        FormatCache? cache = null;
+        string? gitRoot = null;
+
+        if (_useCache || files.Count > 0)
+        {
+            var searchDir = Path.GetDirectoryName(files[0]) ?? Directory.GetCurrentDirectory();
+            gitRoot = GitIgnoreFilter.FindGitRoot(searchDir);
+
+            if (_useCache && gitRoot == null)
+            {
+                Console.Error.WriteLine("Warning: --cache requires a git repository. Cache disabled.");
+            }
+            else if (gitRoot != null)
+            {
+                var cacheExists = File.Exists(Path.Combine(gitRoot, ".fastformat-cache"));
+                if (_useCache || cacheExists)
+                    cache = new FormatCache(gitRoot);
+            }
+        }
+
         var options = new ParallelOptions { MaxDegreeOfParallelism = _parallel, CancellationToken = cancellationToken };
 
         await Parallel.ForEachAsync(files, options, async (file, ct) =>
         {
             try
             {
-                var changed = await FormatFileAsync(file, ct);
+                var changed = await FormatFileAsync(file, cache, gitRoot, ct);
                 Interlocked.Increment(ref result.FilesProcessed);
                 if (changed) Interlocked.Increment(ref result.FilesChanged);
             }
@@ -83,6 +109,8 @@ internal class Formatter
                     Console.WriteLine($"Error formatting {file}: {ex.Message}");
             }
         });
+
+        cache?.Flush();
 
         var action = _check ? "checked" : "formatted";
         Console.WriteLine($"{action} {result.FilesProcessed} file(s), {result.FilesChanged} changed.");
@@ -99,12 +127,33 @@ internal class Formatter
         return 0;
     }
 
-    private async Task<bool> FormatFileAsync(string filePath, CancellationToken ct)
+    private async Task<bool> FormatFileAsync(string filePath, FormatCache? cache, string? gitRoot, CancellationToken ct)
     {
-        var (text, encoding, hasBom) = await ReadFileWithEncodingAsync(filePath, ct);
+        var (text, encoding, hasBom, bytes) = await ReadFileWithEncodingAsync(filePath, ct);
+
+        string? relativePath = null;
+        if (cache != null && gitRoot != null)
+        {
+            relativePath = GetRelativePathForCache(filePath, gitRoot);
+            var hash = ComputeHash(bytes);
+            if (cache.TryGet(relativePath, hash))
+            {
+                if (_verbose)
+                    Console.WriteLine($"Cache hit: {filePath}");
+                return false;
+            }
+        }
+
         var formatted = await FormatTextAsync(text, filePath);
         if (text == formatted)
+        {
+            if (cache != null && relativePath != null)
+            {
+                var hash = ComputeHash(bytes);
+                cache.Set(relativePath, hash);
+            }
             return false;
+        }
 
         if (_check)
         {
@@ -113,30 +162,43 @@ internal class Formatter
             return true;
         }
 
-        await WriteFileWithEncodingAsync(filePath, formatted, encoding, hasBom, ct);
+        var preamble = hasBom ? encoding.GetPreamble() : Array.Empty<byte>();
+        var textBytes = encoding.GetBytes(formatted);
+        var outputBytes = new byte[preamble.Length + textBytes.Length];
+        preamble.CopyTo(outputBytes, 0);
+        textBytes.CopyTo(outputBytes, preamble.Length);
+
+        await File.WriteAllBytesAsync(filePath, outputBytes, ct);
 
         if (_verbose)
             Console.WriteLine($"Formatted: {filePath}");
 
+        if (cache != null && relativePath != null)
+        {
+            var hash = ComputeHash(outputBytes);
+            cache.Set(relativePath, hash);
+        }
+
         return true;
     }
 
-    private static async Task<(string Text, Encoding Encoding, bool HasBom)> ReadFileWithEncodingAsync(string filePath, CancellationToken ct)
+    private static byte[] ComputeHash(byte[] data)
+    {
+        return XxHash128.Hash(data);
+    }
+
+    private static string GetRelativePathForCache(string filePath, string gitRoot)
+    {
+        var rel = Path.GetRelativePath(gitRoot, filePath);
+        return rel.Replace('\\', '/');
+    }
+
+    private static async Task<(string Text, Encoding Encoding, bool HasBom, byte[] Bytes)> ReadFileWithEncodingAsync(string filePath, CancellationToken ct)
     {
         var bytes = await File.ReadAllBytesAsync(filePath, ct);
         var encoding = DetectEncoding(bytes, out var bomLength);
         var text = encoding.GetString(bytes, bomLength, bytes.Length - bomLength);
-        return (text, encoding, bomLength > 0);
-    }
-
-    private static async Task WriteFileWithEncodingAsync(string filePath, string text, Encoding encoding, bool hasBom, CancellationToken ct)
-    {
-        var preamble = hasBom ? encoding.GetPreamble() : Array.Empty<byte>();
-        var textBytes = encoding.GetBytes(text);
-        var result = new byte[preamble.Length + textBytes.Length];
-        preamble.CopyTo(result, 0);
-        textBytes.CopyTo(result, preamble.Length);
-        await File.WriteAllBytesAsync(filePath, result, ct);
+        return (text, encoding, bomLength > 0, bytes);
     }
 
     private static Encoding DetectEncoding(byte[] bytes, out int bomLength)
@@ -171,6 +233,22 @@ internal class Formatter
         return Encoding.UTF8;
     }
 
+    private static AdhocWorkspace RentWorkspace()
+    {
+        if (_workspacePool.TryTake(out var ws))
+            return ws;
+        return new AdhocWorkspace();
+    }
+
+    private static void ReturnWorkspace(AdhocWorkspace workspace)
+    {
+        var solution = workspace.CurrentSolution;
+        foreach (var projectId in solution.ProjectIds.ToArray())
+            solution = solution.RemoveProject(projectId);
+        workspace.TryApplyChanges(solution);
+        _workspacePool.Add(workspace);
+    }
+
     private async Task<string> FormatTextAsync(string text, string? filePath)
     {
         var sourceText = SourceText.From(text);
@@ -189,65 +267,72 @@ internal class Formatter
         }
 
         // Build formatting options from .editorconfig
-        var workspace = new AdhocWorkspace();
-        var options = workspace.Options;
-        EditorConfigOptions? editorConfig = null;
-
-        if (filePath != null)
+        var workspace = RentWorkspace();
+        try
         {
-            editorConfig = EditorConfigParser.GetOptionsForFile(filePath);
-            options = ApplyEditorConfigOptions(options, editorConfig);
-        }
+            var options = workspace.Options;
+            EditorConfigOptions? editorConfig = null;
 
-        // Organize imports if configured
-        if (editorConfig?.SortSystemDirectivesFirst == true || editorConfig?.SeparateImportDirectiveGroups == true)
-        {
-            var project = workspace.AddProject("temp", LanguageNames.CSharp);
-            var documentInfo = DocumentInfo.Create(
-                DocumentId.CreateNewId(project.Id),
-                Path.GetFileName(filePath ?? "stdin.cs"),
-                filePath: filePath,
-                loader: TextLoader.From(TextAndVersion.Create(sourceText, VersionStamp.Default)));
-            var document = workspace.AddDocument(documentInfo);
-            document = await Microsoft.CodeAnalysis.Formatting.Formatter.OrganizeImportsAsync(document);
-            var organizedRoot = await document.GetSyntaxRootAsync();
-            if (organizedRoot != null)
+            if (filePath != null)
             {
-                root = organizedRoot;
-                sourceText = await document.GetTextAsync();
+                editorConfig = EditorConfigParser.GetOptionsForFile(filePath);
+                options = ApplyEditorConfigOptions(options, editorConfig);
             }
-        }
 
-        var formattedRoot = Microsoft.CodeAnalysis.Formatting.Formatter.Format(root, workspace, options);
+            // Organize imports if configured
+            if (editorConfig?.SortSystemDirectivesFirst == true || editorConfig?.SeparateImportDirectiveGroups == true)
+            {
+                var project = workspace.AddProject("temp", LanguageNames.CSharp);
+                var documentInfo = DocumentInfo.Create(
+                    DocumentId.CreateNewId(project.Id),
+                    Path.GetFileName(filePath ?? "stdin.cs"),
+                    filePath: filePath,
+                    loader: TextLoader.From(TextAndVersion.Create(sourceText, VersionStamp.Default)));
+                var document = workspace.AddDocument(documentInfo);
+                document = await Microsoft.CodeAnalysis.Formatting.Formatter.OrganizeImportsAsync(document);
+                var organizedRoot = await document.GetSyntaxRootAsync();
+                if (organizedRoot != null)
+                {
+                    root = organizedRoot;
+                    sourceText = await document.GetTextAsync();
+                }
+            }
 
-        var formattedText = formattedRoot.GetText().ToString();
+            var formattedRoot = Microsoft.CodeAnalysis.Formatting.Formatter.Format(root, workspace, options);
 
-        // Handle insert_final_newline manually since Roslyn formatter doesn't always
-        var endsWithNewline = !string.IsNullOrEmpty(formattedText) &&
-            (formattedText[^1] == '\n' || formattedText[^1] == '\r');
-        var shouldInsertFinalNewline = editorConfig?.InsertFinalNewline != false;
-        if (shouldInsertFinalNewline && !endsWithNewline)
-        {
-            var newline = editorConfig?.NewLine ?? "\n";
-            formattedText += newline;
-        }
-        else if (!shouldInsertFinalNewline && endsWithNewline)
-        {
-            formattedText = formattedText.TrimEnd('\n', '\r');
-        }
+            var formattedText = formattedRoot.GetText().ToString();
 
-        // Handle trim_trailing_whitespace manually
-        if (editorConfig?.TrimTrailingWhitespace == true)
-        {
-            formattedText = System.Text.RegularExpressions.Regex.Replace(formattedText, @"[ \t]+(\r?\n|\r)", "$1");
-            formattedText = formattedText.TrimEnd(' ', '\t');
+            // Handle insert_final_newline manually since Roslyn formatter doesn't always
+            var endsWithNewline = !string.IsNullOrEmpty(formattedText) &&
+                (formattedText[^1] == '\n' || formattedText[^1] == '\r');
+            var shouldInsertFinalNewline = editorConfig?.InsertFinalNewline != false;
+            if (shouldInsertFinalNewline && !endsWithNewline)
+            {
+                var newline = editorConfig?.NewLine ?? "\n";
+                formattedText += newline;
+            }
+            else if (!shouldInsertFinalNewline && endsWithNewline)
+            {
+                formattedText = formattedText.TrimEnd('\n', '\r');
+            }
+
+            // Handle trim_trailing_whitespace manually
+            if (editorConfig?.TrimTrailingWhitespace == true)
+            {
+                formattedText = System.Text.RegularExpressions.Regex.Replace(formattedText, @"[ \t]+(\r?\n|\r)", "$1");
+                formattedText = formattedText.TrimEnd(' ', '\t');
+            }
+            // Normalize line endings if configured
+            if (!string.IsNullOrEmpty(editorConfig?.NewLine))
+            {
+                formattedText = formattedText.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", editorConfig.NewLine);
+            }
+            return formattedText;
         }
-        // Normalize line endings if configured
-        if (!string.IsNullOrEmpty(editorConfig?.NewLine))
+        finally
         {
-            formattedText = formattedText.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", editorConfig.NewLine);
+            ReturnWorkspace(workspace);
         }
-        return formattedText;
     }
 
     private static OptionSet ApplyEditorConfigOptions(OptionSet options, EditorConfigOptions editorConfig)

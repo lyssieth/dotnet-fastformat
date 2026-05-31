@@ -12,6 +12,7 @@ public class Program
         bool check = false;
         bool verbose = false;
         bool force = false;
+        bool cache = false;
         int? parallel = null;
         string? stdinFilePath = null;
 
@@ -30,6 +31,9 @@ public class Program
                     break;
                 case "--force":
                     force = true;
+                    break;
+                case "--cache":
+                    cache = true;
                     break;
                 case "--parallel":
                 case "-p":
@@ -102,7 +106,7 @@ public class Program
         };
 
         var stopwatch = Stopwatch.StartNew();
-        var formatter = new Formatter(check, verbose, parallel, includes, excludes);
+        var formatter = new Formatter(check, verbose, parallel, includes, excludes, cache);
 
         int result;
         if (stdinMode)
@@ -178,6 +182,7 @@ public class Program
         Console.WriteLine("  --include PATTERN      Include files matching glob pattern (repeatable)");
         Console.WriteLine("  --exclude PATTERN      Exclude files matching glob pattern (repeatable)");
         Console.WriteLine("  --stdin-filepath PATH  File path to use for .editorconfig resolution in stdin mode");
+        Console.WriteLine("  --cache                Enable content-hash cache (requires git repo)");
         Console.WriteLine("  --force                Bypass project-directory safety check");
         Console.WriteLine("  --version              Show version");
         Console.WriteLine("  -h, --help             Show this help");

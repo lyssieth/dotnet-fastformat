@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.RegularExpressions;
 using GlobExpressions;
 
@@ -24,29 +25,37 @@ internal class EditorConfigOptions
 
 internal class EditorConfigParser
 {
+    private static readonly ConcurrentDictionary<string, EditorConfigFile> _fileCache = new();
+    private static readonly ConcurrentDictionary<string, EditorConfigOptions> _optionsCache = new();
+
     public static EditorConfigOptions GetOptionsForFile(string filePath)
     {
         var fileName = Path.GetFileName(filePath);
         var dir = Path.GetDirectoryName(filePath);
+
+        if (dir != null && _optionsCache.TryGetValue(dir, out var cachedOptions))
+            return cachedOptions;
+
         var gitRoot = GitIgnoreFilter.FindGitRoot(dir);
         var configs = new List<(string Directory, EditorConfigFile Config)>();
 
+        var currentDir = dir;
         // Walk up the directory tree collecting .editorconfig files, stopping at git root
-        while (!string.IsNullOrEmpty(dir))
+        while (!string.IsNullOrEmpty(currentDir))
         {
-            var editorConfigPath = Path.Combine(dir, ".editorconfig");
+            var editorConfigPath = Path.Combine(currentDir, ".editorconfig");
             if (File.Exists(editorConfigPath))
             {
-                var config = ParseFile(editorConfigPath);
-                configs.Add((dir, config));
+                var config = _fileCache.GetOrAdd(editorConfigPath, _ => ParseFile(editorConfigPath));
+                configs.Add((currentDir, config));
                 if (config.IsRoot)
                     break;
             }
-            if (dir.Equals(gitRoot, StringComparison.OrdinalIgnoreCase))
+            if (currentDir.Equals(gitRoot, StringComparison.OrdinalIgnoreCase))
                 break;
-            var parent = Path.GetDirectoryName(dir);
-            if (parent == dir) break;
-            dir = parent;
+            var parent = Path.GetDirectoryName(currentDir);
+            if (parent == currentDir) break;
+            currentDir = parent;
         }
 
         // Reverse so closest config applies last (overrides earlier ones)
@@ -64,6 +73,9 @@ internal class EditorConfigParser
                 }
             }
         }
+
+        if (dir != null)
+            _optionsCache.TryAdd(dir, result);
 
         return result;
     }
