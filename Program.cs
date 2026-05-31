@@ -94,19 +94,26 @@ public class Program
             }
         }
 
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (sender, e) =>
+        {
+            e.Cancel = true;
+            cts.Cancel();
+        };
+
         var stopwatch = Stopwatch.StartNew();
         var formatter = new Formatter(check, verbose, parallel, includes, excludes);
 
         int result;
         if (stdinMode)
         {
-            result = await formatter.RunStdinAsync(stdinFilePath);
+            result = await formatter.RunStdinAsync(stdinFilePath, cts.Token);
         }
         else
         {
             if (paths.Count == 0)
                 paths.Add(".");
-            result = await formatter.RunAsync(paths);
+            result = await formatter.RunAsync(paths, cts.Token);
         }
 
         stopwatch.Stop();

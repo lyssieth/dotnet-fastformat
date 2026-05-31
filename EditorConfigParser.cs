@@ -28,7 +28,7 @@ internal class EditorConfigParser
     {
         var fileName = Path.GetFileName(filePath);
         var dir = Path.GetDirectoryName(filePath);
-        var gitRoot = FindGitRoot(dir);
+        var gitRoot = GitIgnoreFilter.FindGitRoot(dir);
         var configs = new List<(string Directory, EditorConfigFile Config)>();
 
         // Walk up the directory tree collecting .editorconfig files, stopping at git root
@@ -66,20 +66,6 @@ internal class EditorConfigParser
         }
 
         return result;
-    }
-
-    private static string? FindGitRoot(string? startDir)
-    {
-        var dir = startDir;
-        while (!string.IsNullOrEmpty(dir))
-        {
-            if (Directory.Exists(Path.Combine(dir, ".git")))
-                return dir;
-            var parent = Path.GetDirectoryName(dir);
-            if (parent == dir) break;
-            dir = parent;
-        }
-        return null;
     }
 
     private static void ApplySection(EditorConfigOptions result, EditorConfigSection section)

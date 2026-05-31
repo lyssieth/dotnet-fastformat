@@ -12,9 +12,9 @@ namespace FastFormat;
 
 internal class FormatterResult
 {
-    public int FilesProcessed { get; set; }
-    public int FilesChanged { get; set; }
-    public int FilesWithErrors { get; set; }
+    public int FilesProcessed;
+    public int FilesChanged;
+    public int FilesWithErrors;
 }
 
 internal class Formatter
@@ -34,9 +34,9 @@ internal class Formatter
         _excludes = excludes ?? new List<string>();
     }
 
-    public async Task<int> RunStdinAsync(string? filePath)
+    public async Task<int> RunStdinAsync(string? filePath, CancellationToken cancellationToken = default)
     {
-        var text = await Console.In.ReadToEndAsync();
+        var text = await Console.In.ReadToEndAsync(cancellationToken);
         try
         {
             var formatted = await FormatTextAsync(text, filePath);
@@ -50,10 +50,10 @@ internal class Formatter
         }
     }
 
-    public async Task<int> RunAsync(List<string> paths)
+    public async Task<int> RunAsync(List<string> paths, CancellationToken cancellationToken = default)
     {
         var files = FindFiles(paths);
-        files = GitIgnoreFilter.FilterIgnoredFiles(files);
+        files = await GitIgnoreFilter.FilterIgnoredFilesAsync(files, cancellationToken);
         var result = new FormatterResult();
 
         if (!files.Any())
@@ -65,27 +65,20 @@ internal class Formatter
         if (_verbose)
             Console.WriteLine($"Found {files.Count} C# file(s)");
 
-        var lockObj = new object();
-        var options = new ParallelOptions { MaxDegreeOfParallelism = _parallel };
+        var options = new ParallelOptions { MaxDegreeOfParallelism = _parallel, CancellationToken = cancellationToken };
 
         await Parallel.ForEachAsync(files, options, async (file, ct) =>
         {
             try
             {
                 var changed = await FormatFileAsync(file, ct);
-                lock (lockObj)
-                {
-                    result.FilesProcessed++;
-                    if (changed) result.FilesChanged++;
-                }
+                Interlocked.Increment(ref result.FilesProcessed);
+                if (changed) Interlocked.Increment(ref result.FilesChanged);
             }
             catch (Exception ex)
             {
-                lock (lockObj)
-                {
-                    result.FilesProcessed++;
-                    result.FilesWithErrors++;
-                }
+                Interlocked.Increment(ref result.FilesProcessed);
+                Interlocked.Increment(ref result.FilesWithErrors);
                 if (_verbose)
                     Console.WriteLine($"Error formatting {file}: {ex.Message}");
             }

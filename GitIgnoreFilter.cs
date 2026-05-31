@@ -2,7 +2,7 @@ namespace FastFormat;
 
 internal static class GitIgnoreFilter
 {
-    public static List<string> FilterIgnoredFiles(List<string> files)
+    public static async Task<List<string>> FilterIgnoredFilesAsync(List<string> files, CancellationToken cancellationToken = default)
     {
         if (files.Count == 0)
             return files;
@@ -34,19 +34,24 @@ internal static class GitIgnoreFilter
                 using var process = System.Diagnostics.Process.Start(psi);
                 if (process == null) continue;
 
+                using var reg = cancellationToken.Register(() =>
+                {
+                    try { process.Kill(); } catch { /* process may already be exiting */ }
+                });
+
                 foreach (var file in batch)
                 {
                     var relative = Path.GetRelativePath(gitRoot, file);
-                    process.StandardInput.Write(relative.Replace("\\", "/"));
-                    process.StandardInput.Write('\0');
+                    await process.StandardInput.WriteAsync(relative.Replace("\\", "/").AsMemory(), cancellationToken);
+                    await process.StandardInput.WriteAsync("\0".AsMemory(), cancellationToken);
                 }
                 process.StandardInput.Close();
-                var outputTask = process.StandardOutput.ReadToEndAsync();
-                process.WaitForExit();
+
+                var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+                await process.WaitForExitAsync(cancellationToken);
 
                 if (process.ExitCode == 0 || process.ExitCode == 1)
                 {
-                    var output = outputTask.Result;
                     if (!string.IsNullOrEmpty(output))
                     {
                         foreach (var line in output.Split('\0', StringSplitOptions.RemoveEmptyEntries))
@@ -59,6 +64,10 @@ internal static class GitIgnoreFilter
 
             return files.Where(f => !ignored.Contains(f)).ToList();
         }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
         catch
         {
             // Fall back to returning all files if git is not available
@@ -66,7 +75,7 @@ internal static class GitIgnoreFilter
         }
     }
 
-    private static string? FindGitRoot(string? startDir)
+    internal static string? FindGitRoot(string? startDir)
     {
         var dir = startDir;
         while (!string.IsNullOrEmpty(dir))
