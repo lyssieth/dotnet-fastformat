@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.IO.Hashing;
 
 namespace FastFormat;
 
@@ -21,7 +20,7 @@ internal sealed class LspFormatterService : IDisposable
     public async Task<IReadOnlyList<LspTextEdit>> FormatDocumentAsync(string uri, string text, CancellationToken cancellationToken)
     {
         var path = TryGetLocalPath(uri);
-        var inputHash = HashText(text);
+        var inputHash = CacheHelper.ComputeHash(text);
         var cachePath = path ?? uri;
         var cacheKey = CreateFormattedCacheKey(cachePath, inputHash);
 
@@ -60,17 +59,16 @@ internal sealed class LspFormatterService : IDisposable
         var end = PositionToOffset(text, range.End);
         if (end < start)
             return [];
-
         string formatted;
         try
         {
-            formatted = await _formatter.FormatTextAsync(text, path).WaitAsync(cancellationToken);
+            var span = new Microsoft.CodeAnalysis.Text.TextSpan(start, end - start);
+            formatted = await _formatter.FormatRangeAsync(text, path, span).WaitAsync(cancellationToken);
         }
         catch (InvalidOperationException)
         {
             return [];
         }
-
         return CreateMinimalEditIfChanged(text, formatted);
     }
 
@@ -118,7 +116,7 @@ internal sealed class LspFormatterService : IDisposable
         if (gitRoot == null)
             return null;
 
-        relativePath = Path.GetRelativePath(gitRoot, path).Replace('\\', '/');
+        relativePath = CacheHelper.GetRelativePath(path, gitRoot);
         return _diskCaches.GetOrAdd(gitRoot, static root => new FormatCache(root));
     }
 
@@ -148,10 +146,6 @@ internal sealed class LspFormatterService : IDisposable
         return string.Concat(pathOrUri, "|", Convert.ToHexString(hash));
     }
 
-    private static byte[] HashText(string text)
-    {
-        return XxHash128.Hash(System.Text.Encoding.UTF8.GetBytes(text));
-    }
 
     private static string? TryGetLocalPath(string uri)
     {

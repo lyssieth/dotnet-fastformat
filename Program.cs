@@ -24,6 +24,7 @@ public class Program
             {
                 case "--check":
                 case "-c":
+                case "--dry-run":
                     check = true;
                     break;
                 case "--verbose":
@@ -41,7 +42,7 @@ public class Program
                     break;
                 case "--parallel":
                 case "-p":
-                    if (i + 1 >= args.Length || !int.TryParse(args[++i], out var p) || p < 1)
+                    if (i + 1 >= args.Length || !int.TryParse(args[++i], System.Globalization.CultureInfo.InvariantCulture, out var p) || p < 1)
                         return Error("--parallel requires a positive integer value.");
                     parallel = p;
                     break;
@@ -194,7 +195,7 @@ public class Program
         Console.WriteLine("       cat file.cs | dotnet-fastformat [options]");
         Console.WriteLine();
         Console.WriteLine("Options:");
-        Console.WriteLine("  -c, --check            Check formatting without making changes");
+        Console.WriteLine("  -c, --check, --dry-run Check formatting without making changes");
         Console.WriteLine("  -v, --verbose          Show detailed output");
         Console.WriteLine("  -p, --parallel N       Number of parallel workers (default: processor count)");
         Console.WriteLine("  --include PATTERN      Include files matching glob pattern (repeatable)");

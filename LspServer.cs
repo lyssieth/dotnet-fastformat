@@ -3,22 +3,34 @@ using System.Text.Json;
 
 namespace FastFormat;
 
-internal sealed class LspServer
+internal sealed class LspServer : IDisposable
 {
     private static readonly byte[] HeaderDelimiter = "\r\n\r\n"u8.ToArray();
-
     private readonly Stream _input;
     private readonly Stream _output;
     private readonly LspFormatterService _formatter;
     private readonly DocumentTracker _documents;
+    private readonly Dictionary<string, CancellationTokenSource> _requestCts = new(StringComparer.Ordinal);
+    private readonly object _requestCtsLock = new();
+    private readonly List<string> _workspaceRoots = new();
+    private readonly byte[] _readBuffer = new byte[4096];
+    private int _readBufferRemaining;
     private bool _shutdownRequested;
-
     public LspServer(Stream input, Stream output, LspFormatterService? formatter = null, DocumentTracker? documents = null)
     {
         _input = input;
         _output = output;
         _formatter = formatter ?? new LspFormatterService();
         _documents = documents ?? new DocumentTracker();
+    }
+    public void Dispose()
+    {
+        lock (_requestCtsLock)
+        {
+            foreach (var cts in _requestCts.Values)
+                cts.Dispose();
+            _requestCts.Clear();
+        }
     }
 
     public async Task<int> RunAsync(CancellationToken cancellationToken)
@@ -28,39 +40,50 @@ internal sealed class LspServer
             var payload = await ReadMessageAsync(cancellationToken);
             if (payload == null)
                 return 0;
-
             using var message = JsonDocument.Parse(payload);
             if (!message.RootElement.TryGetProperty("method", out var methodElement))
                 continue;
-
             var method = methodElement.GetString();
             var hasId = message.RootElement.TryGetProperty("id", out var id);
             var hasParams = message.RootElement.TryGetProperty("params", out var parameters);
-
+            if (!hasId)
+            {
+                if (HandleNotification(method, hasParams ? parameters : default))
+                    return _shutdownRequested ? 0 : 1;
+                continue;
+            }
+            var requestKey = GetRequestKey(id);
+            var requestCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            lock (_requestCtsLock)
+                _requestCts[requestKey] = requestCts;
             try
             {
-                if (!hasId)
-                {
-                    if (HandleNotification(method, hasParams ? parameters : default))
-                        return _shutdownRequested ? 0 : 1;
-                    continue;
-                }
-
-                var result = await HandleRequestAsync(method, hasParams ? parameters : default, cancellationToken);
-                await WriteResultAsync(id, result, cancellationToken);
+                var result = await HandleRequestAsync(method, hasParams ? parameters : default, requestCts.Token);
+                if (!requestCts.Token.IsCancellationRequested)
+                    await WriteResultAsync(id, result, cancellationToken);
             }
-            catch (NotSupportedException ex) when (hasId)
+            catch (OperationCanceledException)
+            {
+                // Request was canceled; do not send a response
+            }
+            catch (NotSupportedException ex)
             {
                 await WriteErrorAsync(id, -32601, ex.Message, cancellationToken);
             }
-            catch (Exception ex) when (hasId)
+            catch (Exception ex)
             {
                 await WriteErrorAsync(id, -32603, ex.Message, cancellationToken);
             }
+            finally
+            {
+                lock (_requestCtsLock)
+                    _requestCts.Remove(requestKey);
+                requestCts.Dispose();
+            }
         }
-
         return 1;
     }
+
 
     private bool HandleNotification(string? method, JsonElement parameters)
     {
@@ -79,16 +102,32 @@ internal sealed class LspServer
             case "textDocument/didClose":
                 HandleDidClose(parameters);
                 return false;
+            case "$/cancelRequest":
+                HandleCancelRequest(parameters);
+                return false;
             default:
                 return false;
         }
     }
-
+    private void HandleCancelRequest(JsonElement parameters)
+    {
+        if (parameters.TryGetProperty("id", out var id))
+        {
+            var requestKey = GetRequestKey(id);
+            lock (_requestCtsLock)
+            {
+                if (_requestCts.TryGetValue(requestKey, out var cts))
+                {
+                    cts.Cancel();
+                }
+            }
+        }
+    }
     private async Task<object?> HandleRequestAsync(string? method, JsonElement parameters, CancellationToken cancellationToken)
     {
         return method switch
         {
-            "initialize" => InitializeResult.Instance,
+            "initialize" => HandleInitialize(parameters),
             "shutdown" => HandleShutdown(),
             "textDocument/formatting" => await HandleFormattingAsync(parameters, cancellationToken),
             "textDocument/rangeFormatting" => await HandleRangeFormattingAsync(parameters, cancellationToken),
@@ -96,11 +135,35 @@ internal sealed class LspServer
         };
     }
 
+
     private object? HandleShutdown()
     {
         _shutdownRequested = true;
         _formatter.Dispose();
         return null;
+    }
+    private object? HandleInitialize(JsonElement parameters)
+    {
+        _workspaceRoots.Clear();
+        if (parameters.TryGetProperty("rootUri", out var rootUri))
+        {
+            var uri = rootUri.GetString();
+            if (!string.IsNullOrEmpty(uri))
+                _workspaceRoots.Add(uri);
+        }
+        if (parameters.TryGetProperty("workspaceFolders", out var folders))
+        {
+            foreach (var folder in folders.EnumerateArray())
+            {
+                if (folder.TryGetProperty("uri", out var folderUri))
+                {
+                    var uri = folderUri.GetString();
+                    if (!string.IsNullOrEmpty(uri))
+                        _workspaceRoots.Add(uri);
+                }
+            }
+        }
+        return InitializeResult.Instance;
     }
 
     private void HandleDidOpen(JsonElement parameters)
@@ -136,19 +199,32 @@ internal sealed class LspServer
         var uri = parameters.GetProperty("textDocument").GetProperty("uri").GetString();
         if (uri == null || !TryGetDocumentText(uri, out var text))
             return [];
-
-        return await _formatter.FormatDocumentAsync(uri, text, cancellationToken);
+        try
+        {
+            return await _formatter.FormatDocumentAsync(uri, text, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            await WriteShowMessageAsync(1, $"FastFormat: {ex.Message}", cancellationToken);
+            return [];
+        }
     }
-
     private async Task<IReadOnlyList<LspTextEdit>> HandleRangeFormattingAsync(JsonElement parameters, CancellationToken cancellationToken)
     {
         var uri = parameters.GetProperty("textDocument").GetProperty("uri").GetString();
         if (uri == null || !TryGetDocumentText(uri, out var text))
             return [];
-
         var rangeElement = parameters.GetProperty("range");
         var range = new LspRange(ReadPosition(rangeElement.GetProperty("start")), ReadPosition(rangeElement.GetProperty("end")));
-        return await _formatter.FormatRangeAsync(uri, text, range, cancellationToken);
+        try
+        {
+            return await _formatter.FormatRangeAsync(uri, text, range, cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            await WriteShowMessageAsync(1, $"FastFormat: {ex.Message}", cancellationToken);
+            return [];
+        }
     }
 
     private bool TryGetDocumentText(string uri, out string text)
@@ -158,55 +234,92 @@ internal sealed class LspServer
             text = trackedText;
             return true;
         }
-
         if (Uri.TryCreate(uri, UriKind.Absolute, out var parsed) && parsed.IsFile && File.Exists(parsed.LocalPath))
         {
-            text = File.ReadAllText(parsed.LocalPath);
-            return true;
+            if (IsUriInWorkspace(uri))
+            {
+                text = File.ReadAllText(parsed.LocalPath);
+                return true;
+            }
         }
-
         text = string.Empty;
         return false;
+    }
+    private bool IsUriInWorkspace(string uri)
+    {
+        if (_workspaceRoots.Count == 0)
+            return true; // No workspace roots known, allow fallback
+        foreach (var root in _workspaceRoots)
+        {
+            if (uri.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    private static string GetRequestKey(JsonElement id)
+    {
+        return string.Concat(id.ValueKind.ToString(), ":", id.GetRawText());
     }
 
     private static LspPosition ReadPosition(JsonElement element)
     {
         return new LspPosition(element.GetProperty("line").GetInt32(), element.GetProperty("character").GetInt32());
     }
-
     private async Task<string?> ReadMessageAsync(CancellationToken cancellationToken)
     {
-        var header = new List<byte>(64);
+        var header = new List<byte>(256);
         var match = 0;
         while (true)
         {
-            var buffer = new byte[1];
-            var read = await _input.ReadAsync(buffer, cancellationToken);
-            if (read == 0)
-                return null;
-
-            var value = buffer[0];
-            header.Add(value);
-            match = value == HeaderDelimiter[match] ? match + 1 : value == HeaderDelimiter[0] ? 1 : 0;
-            if (match == HeaderDelimiter.Length)
-                break;
+            if (_readBufferRemaining == 0)
+            {
+                var read = await _input.ReadAsync(_readBuffer.AsMemory(0, _readBuffer.Length), cancellationToken);
+                if (read == 0)
+                    return null;
+                _readBufferRemaining = read;
+            }
+            for (int i = 0; i < _readBufferRemaining; i++)
+            {
+                var value = _readBuffer[i];
+                header.Add(value);
+                match = value == HeaderDelimiter[match] ? match + 1 : value == HeaderDelimiter[0] ? 1 : 0;
+                if (match == HeaderDelimiter.Length)
+                {
+                    _readBufferRemaining -= i + 1;
+                    if (_readBufferRemaining > 0)
+                        Buffer.BlockCopy(_readBuffer, i + 1, _readBuffer, 0, _readBufferRemaining);
+                    goto headerComplete;
+                }
+            }
+            _readBufferRemaining = 0;
         }
-
+    headerComplete:
         var headerText = Encoding.ASCII.GetString(header.ToArray());
         var contentLength = ParseContentLength(headerText);
         if (contentLength < 0)
             return null;
-
         var payload = new byte[contentLength];
-        var offset = 0;
-        while (offset < payload.Length)
+        var payloadOffset = 0;
+        var payloadRemaining = contentLength;
+        if (_readBufferRemaining > 0)
         {
-            var read = await _input.ReadAsync(payload.AsMemory(offset, payload.Length - offset), cancellationToken);
+            var fromBuffer = Math.Min(payloadRemaining, _readBufferRemaining);
+            Buffer.BlockCopy(_readBuffer, 0, payload, payloadOffset, fromBuffer);
+            payloadOffset += fromBuffer;
+            payloadRemaining -= fromBuffer;
+            _readBufferRemaining -= fromBuffer;
+            if (_readBufferRemaining > 0)
+                Buffer.BlockCopy(_readBuffer, fromBuffer, _readBuffer, 0, _readBufferRemaining);
+        }
+        while (payloadRemaining > 0)
+        {
+            var read = await _input.ReadAsync(payload.AsMemory(payloadOffset, payloadRemaining), cancellationToken);
             if (read == 0)
                 return null;
-            offset += read;
+            payloadOffset += read;
+            payloadRemaining -= read;
         }
-
         return Encoding.UTF8.GetString(payload);
     }
 
@@ -219,7 +332,7 @@ internal sealed class LspServer
                 continue;
 
             if (line[..colon].Equals("Content-Length", StringComparison.OrdinalIgnoreCase) &&
-                int.TryParse(line[(colon + 1)..].Trim(), out var length))
+                int.TryParse(line[(colon + 1)..].Trim(), System.Globalization.CultureInfo.InvariantCulture, out var length))
                 return length;
         }
 
@@ -258,6 +371,27 @@ internal sealed class LspServer
             writer.WriteEndObject();
         }
 
+        var bytes = body.ToArray();
+        var header = Encoding.ASCII.GetBytes($"Content-Length: {bytes.Length}\r\n\r\n");
+        await _output.WriteAsync(header, cancellationToken);
+        await _output.WriteAsync(bytes, cancellationToken);
+        await _output.FlushAsync(cancellationToken);
+    }
+    private async Task WriteShowMessageAsync(int type, string message, CancellationToken cancellationToken)
+    {
+        await using var body = new MemoryStream();
+        await using (var writer = new Utf8JsonWriter(body))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("jsonrpc", "2.0");
+            writer.WriteString("method", "window/showMessage");
+            writer.WritePropertyName("params");
+            writer.WriteStartObject();
+            writer.WriteNumber("type", type);
+            writer.WriteString("message", message);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
         var bytes = body.ToArray();
         var header = Encoding.ASCII.GetBytes($"Content-Length: {bytes.Length}\r\n\r\n");
         await _output.WriteAsync(header, cancellationToken);

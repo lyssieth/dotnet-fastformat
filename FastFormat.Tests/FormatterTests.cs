@@ -569,18 +569,6 @@ public class FormatterTests : IDisposable
         Assert.Equal(1, exit2);
     }
 
-    [Fact]
-    public async Task Cache_AutoDetect_FromExistingFile()
-    {
-        Directory.CreateDirectory(Path.Combine(_tempDir, ".git"));
-        WriteFile("a.cs", "class A\n{\n}\n"); // already formatted
-        File.WriteAllText(Path.Combine(_tempDir, ".fastformat-cache"), "a.cs|00000000000000000000000000000000\n");
-
-        // Without --cache flag, but cache file exists: should use cache
-        var exit = await Program.Main(new[] { "--check", _tempDir });
-        // Cache entry hash is wrong, so it should process the file and find it clean
-        Assert.Equal(0, exit);
-    }
 
     [Fact]
     public async Task Cache_FileFormat_WrittenCorrectly()
@@ -591,11 +579,92 @@ public class FormatterTests : IDisposable
         var exit = await Program.Main(new[] { "--cache", _tempDir });
         Assert.Equal(0, exit);
 
-        var cachePath = Path.Combine(_tempDir, ".fastformat-cache");
+        var cachePath = Path.Combine(_tempDir, ".git", "fastformat-cache");
         Assert.True(File.Exists(cachePath));
         var lines = File.ReadAllLines(cachePath);
         Assert.Single(lines);
         Assert.StartsWith("a.cs|", lines[0]);
         Assert.Equal(37, lines[0].Length); // "a.cs|" + 32 hex chars
+    }
+
+    [Fact]
+    public async Task Format_PreservesUtf8Bom()
+    {
+        await AssertEncodingRoundTripAsync(Encoding.UTF8, hasBom: true);
+    }
+
+    [Fact]
+    public async Task Format_PreservesUtf16LittleEndianBom()
+    {
+        await AssertEncodingRoundTripAsync(Encoding.Unicode, hasBom: true);
+    }
+
+    [Fact]
+    public async Task Format_PreservesUtf16BigEndianBom()
+    {
+        await AssertEncodingRoundTripAsync(Encoding.BigEndianUnicode, hasBom: true);
+    }
+
+    [Fact]
+    public async Task Format_PreservesUtf32LittleEndianBom()
+    {
+        await AssertEncodingRoundTripAsync(Encoding.UTF32, hasBom: true);
+    }
+
+    [Fact]
+    public async Task Format_PreservesUtf32BigEndianBom()
+    {
+        await AssertEncodingRoundTripAsync(new UTF32Encoding(bigEndian: true, byteOrderMark: true), hasBom: true);
+    }
+
+    [Fact]
+    public async Task Format_PreservesUtf8WithoutBom()
+    {
+        await AssertEncodingRoundTripAsync(new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), hasBom: false);
+    }
+
+    [Fact]
+    public async Task FormatTextAsync_MatchesRoslynFormatter_ForRepresentativeCode()
+    {
+        const string source = "using System.Linq;\nclass C{void M(){if(true){var x=new[]{1,2}.Select(n=>n);}}}\n";
+        var formatter = new Formatter(check: false, verbose: false, parallel: 1);
+
+        var actual = await formatter.FormatTextAsync(source, filePath: null);
+        var expected = await FormatWithRoslynAsync(source);
+
+        Assert.Equal(expected, actual);
+    }
+
+    private async Task AssertEncodingRoundTripAsync(Encoding encoding, bool hasBom)
+    {
+        var path = Path.Combine(_tempDir, Guid.NewGuid() + ".cs");
+        var dir = Path.GetDirectoryName(path)!;
+        Directory.CreateDirectory(dir);
+
+        var preamble = hasBom ? encoding.GetPreamble() : Array.Empty<byte>();
+        var sourceBytes = encoding.GetBytes("class A{\n}\n");
+        var inputBytes = new byte[preamble.Length + sourceBytes.Length];
+        preamble.CopyTo(inputBytes, 0);
+        sourceBytes.CopyTo(inputBytes, preamble.Length);
+        await File.WriteAllBytesAsync(path, inputBytes);
+
+        var formatter = new Formatter(check: false, verbose: false, parallel: 1);
+        var exit = await formatter.RunAsync(new List<string> { path });
+
+        Assert.Equal(0, exit);
+        var outputBytes = await File.ReadAllBytesAsync(path);
+        Assert.Equal(preamble, outputBytes.Take(preamble.Length).ToArray());
+        var text = encoding.GetString(outputBytes, preamble.Length, outputBytes.Length - preamble.Length);
+        Assert.Equal("class A\n{\n}\n", text);
+    }
+
+    private static async Task<string> FormatWithRoslynAsync(string source)
+    {
+        var sourceText = Microsoft.CodeAnalysis.Text.SourceText.From(source);
+        var tree = Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(sourceText);
+        var root = await tree.GetRootAsync();
+        using var workspace = new Microsoft.CodeAnalysis.AdhocWorkspace();
+        var formatted = Microsoft.CodeAnalysis.Formatting.Formatter.Format(root, workspace);
+        return formatted.ToFullString();
     }
 }

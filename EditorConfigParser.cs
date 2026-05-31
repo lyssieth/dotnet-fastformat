@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Text.RegularExpressions;
 using GlobExpressions;
 
 namespace FastFormat;
@@ -26,15 +25,11 @@ internal class EditorConfigOptions
 internal class EditorConfigParser
 {
     private static readonly ConcurrentDictionary<string, EditorConfigFile> _fileCache = new();
-    private static readonly ConcurrentDictionary<string, EditorConfigOptions> _optionsCache = new();
 
     public static EditorConfigOptions GetOptionsForFile(string filePath)
     {
         var fileName = Path.GetFileName(filePath);
         var dir = Path.GetDirectoryName(filePath);
-
-        if (dir != null && _optionsCache.TryGetValue(dir, out var cachedOptions))
-            return cachedOptions;
 
         var gitRoot = GitIgnoreFilter.FindGitRoot(dir);
         var configs = new List<(string Directory, EditorConfigFile Config)>();
@@ -74,9 +69,6 @@ internal class EditorConfigParser
             }
         }
 
-        if (dir != null)
-            _optionsCache.TryAdd(dir, result);
-
         return result;
     }
 
@@ -90,11 +82,11 @@ internal class EditorConfigParser
                     result.UseTabs = kvp.Value.Equals("tab", StringComparison.OrdinalIgnoreCase);
                     break;
                 case "indent_size":
-                    if (int.TryParse(kvp.Value, out var indentSize))
+                    if (int.TryParse(kvp.Value, System.Globalization.CultureInfo.InvariantCulture, out var indentSize))
                         result.IndentSize = indentSize;
                     break;
                 case "tab_width":
-                    if (int.TryParse(kvp.Value, out var tabWidth))
+                    if (int.TryParse(kvp.Value, System.Globalization.CultureInfo.InvariantCulture, out var tabWidth))
                         result.TabWidth = tabWidth;
                     break;
                 case "end_of_line":
@@ -159,10 +151,10 @@ internal class EditorConfigParser
         foreach (var rawLine in lines)
         {
             var line = rawLine.Trim();
-            if (string.IsNullOrEmpty(line) || line.StartsWith("#") || line.StartsWith(";"))
+            if (string.IsNullOrEmpty(line) || line.StartsWith("#", StringComparison.Ordinal) || line.StartsWith(";", StringComparison.Ordinal))
                 continue;
 
-            if (line.StartsWith("[") && line.EndsWith("]"))
+            if (line.StartsWith("[", StringComparison.Ordinal) && line.EndsWith("]", StringComparison.Ordinal))
             {
                 currentSection = new EditorConfigSection { Glob = line[1..^1] };
                 file.Sections.Add(currentSection);

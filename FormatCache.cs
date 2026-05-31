@@ -12,8 +12,16 @@ internal class FormatCache
 
     public FormatCache(string gitRoot)
     {
-        _cacheFilePath = Path.Combine(gitRoot, ".fastformat-cache");
-        _entries = Load(_cacheFilePath);
+        var newPath = Path.Combine(gitRoot, ".git", "fastformat-cache");
+        var oldPath = Path.Combine(gitRoot, ".fastformat-cache");
+        _cacheFilePath = newPath;
+        _entries = Load(newPath);
+        if (_entries.IsEmpty && File.Exists(oldPath))
+        {
+            var migrated = Load(oldPath);
+            foreach (var kvp in migrated)
+                _entries[kvp.Key] = kvp.Value;
+        }
     }
 
     private static ConcurrentDictionary<string, string> Load(string path)

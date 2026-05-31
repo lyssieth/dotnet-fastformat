@@ -16,7 +16,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FastFormat.csproj" />
-    <ProjectReference Include="..\FastFormat.Benchmark\FastFormat.Benchmark.csproj" />
   </ItemGroup>
 
   <ItemGroup>
