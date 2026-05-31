@@ -1,8 +1,9 @@
 using System.Text.RegularExpressions;
+using GlobExpressions;
 
 namespace FastFormat;
 
-class EditorConfigOptions
+public class EditorConfigOptions
 {
     public bool? UseTabs { get; set; }
     public int? IndentSize { get; set; }
@@ -21,7 +22,7 @@ class EditorConfigOptions
     public bool? SeparateImportDirectiveGroups { get; set; }
 }
 
-class EditorConfigParser
+public class EditorConfigParser
 {
     public static EditorConfigOptions GetOptionsForFile(string filePath)
     {
@@ -190,35 +191,18 @@ class EditorConfigParser
 
     private static bool MatchesGlob(string relativePath, string fileName, string glob)
     {
-        // Very simple glob matching - supports *, **, ?
-        // For our purposes, this is sufficient for common patterns like [*], [*.cs], [src/**.cs]
-        if (glob == "*")
-            return true;
-
-        // Convert glob to regex
-        var pattern = glob
-            .Replace(".**/", "###DOUBLESTAR###")
-            .Replace("**", "###DOUBLESTAR###")
-            .Replace("*", "###STAR###")
-            .Replace("?", "###QUESTION###")
-            .Replace(".", "\\.")
-            .Replace("###DOUBLESTAR###", ".*")
-            .Replace("###STAR###", "[^/]*")
-            .Replace("###QUESTION###", ".");
-
-        pattern = "^" + pattern + "$";
-        var regex = new Regex(pattern, RegexOptions.IgnoreCase);
-        return regex.IsMatch(relativePath) || regex.IsMatch(fileName);
+        var g = new Glob(glob, GlobOptions.Compiled);
+        return g.IsMatch(relativePath) || g.IsMatch(fileName);
     }
 }
 
-class EditorConfigFile
+public class EditorConfigFile
 {
     public bool IsRoot { get; set; }
     public List<EditorConfigSection> Sections { get; } = new();
 }
 
-class EditorConfigSection
+public class EditorConfigSection
 {
     public string Glob { get; set; } = "*";
     public Dictionary<string, string> Options { get; } = new(StringComparer.OrdinalIgnoreCase);

@@ -18,8 +18,12 @@
     <PackageProjectUrl>https://github.com/lyssieth/dotnet-fastformat</PackageProjectUrl>
     <PackageTags>dotnet;format;csharp;editorconfig;formatter</PackageTags>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="FastFormat.Tests\**" />
+  </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Glob" Version="1.1.8" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.3.0" />
     <None Include="README.md" Pack="true" PackagePath="\" />

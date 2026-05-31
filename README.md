@@ -57,11 +57,15 @@ dotnet-fastformat -p 8 src/
 - `csharp_new_line_before_members_in_object_initializers`
 - `csharp_new_line_between_query_expression_clauses`
 - `dotnet_sort_system_directives_first`
+- `dotnet_separate_import_directive_groups`
 
 ## File Types
 
 - `.cs` — C# source files
 - `.csx` — C# script files
+
+## Encoding
+Files are read and written preserving their existing BOM. Files without a BOM are assumed to be UTF-8.
 
 ## Why is it faster?
 

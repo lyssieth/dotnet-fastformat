@@ -1,6 +1,6 @@
 namespace FastFormat;
 
-static class GitIgnoreFilter
+public static class GitIgnoreFilter
 {
     public static List<string> FilterIgnoredFiles(List<string> files)
     {

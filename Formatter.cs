@@ -1,4 +1,5 @@
 using System.Text;
+using GlobExpressions;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -9,14 +10,14 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace FastFormat;
 
-class FormatterResult
+public class FormatterResult
 {
     public int FilesProcessed { get; set; }
     public int FilesChanged { get; set; }
     public int FilesWithErrors { get; set; }
 }
 
-class Formatter
+public class Formatter
 {
     private readonly bool _check;
     private readonly bool _verbose;
@@ -36,11 +37,17 @@ class Formatter
     public async Task<int> RunStdinAsync(string? filePath)
     {
         var text = await Console.In.ReadToEndAsync();
-        var formatted = await FormatTextAsync(text, filePath);
-        if (formatted == null)
+        try
+        {
+            var formatted = await FormatTextAsync(text, filePath);
+            await Console.Out.WriteAsync(formatted);
+            return 0;
+        }
+        catch (InvalidOperationException)
+        {
+            await Console.Out.WriteAsync(text);
             return 2;
-        await Console.Out.WriteAsync(formatted);
-        return 0;
+        }
     }
 
     public async Task<int> RunAsync(List<string> paths)
@@ -103,7 +110,7 @@ class Formatter
     {
         var (text, encoding, hasBom) = await ReadFileWithEncodingAsync(filePath, ct);
         var formatted = await FormatTextAsync(text, filePath);
-        if (formatted == null)
+        if (text == formatted)
             return false;
 
         if (text == formatted)
@@ -168,7 +175,7 @@ class Formatter
         return Encoding.UTF8;
     }
 
-    private async Task<string?> FormatTextAsync(string text, string? filePath)
+    private async Task<string> FormatTextAsync(string text, string? filePath)
     {
         var sourceText = SourceText.From(text);
 
@@ -182,10 +189,7 @@ class Formatter
         {
             if (_verbose && filePath != null)
                 Console.WriteLine($"Skipping {filePath} - parse errors detected");
-            // For stdin, we still return the original text on error
-            if (filePath == null)
-                return text;
-            return null;
+            throw new InvalidOperationException("Parse errors detected.");
         }
 
         // Build formatting options from .editorconfig
@@ -244,7 +248,11 @@ class Formatter
             formattedText = System.Text.RegularExpressions.Regex.Replace(formattedText, @"[ \t]+(\r?\n|\r)", "$1");
             formattedText = formattedText.TrimEnd(' ', '\t');
         }
-
+        // Normalize line endings if configured
+        if (!string.IsNullOrEmpty(editorConfig?.NewLine))
+        {
+            formattedText = formattedText.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", editorConfig.NewLine);
+        }
         return formattedText;
     }
 
@@ -387,27 +395,10 @@ class Formatter
         return path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
             || path.EndsWith(".csx", StringComparison.OrdinalIgnoreCase);
     }
-
     private static bool MatchesGlobPattern(string filePath, string pattern)
     {
-        // Simple glob matching for include/exclude patterns
-        // Supports * and ** wildcards
-        if (pattern == "*")
-            return true;
-
-        var regexPattern = pattern
-            .Replace(".**/", "###DOUBLESTAR###")
-            .Replace("**", "###DOUBLESTAR###")
-            .Replace("*", "###STAR###")
-            .Replace("?", "###QUESTION###")
-            .Replace(".", "\\.")
-            .Replace("###DOUBLESTAR###", ".*")
-            .Replace("###STAR###", "[^/\\]*")
-            .Replace("###QUESTION###", ".");
-
-        regexPattern = "^" + regexPattern + "$";
-        var regex = new System.Text.RegularExpressions.Regex(regexPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var g = new Glob(pattern, GlobOptions.Compiled);
         var fileName = Path.GetFileName(filePath);
-        return regex.IsMatch(filePath) || regex.IsMatch(fileName);
+        return g.IsMatch(filePath) || g.IsMatch(fileName);
     }
 }

@@ -2,9 +2,9 @@ using System.Diagnostics;
 
 namespace FastFormat;
 
-class Program
+public class Program
 {
-    static async Task<int> Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
         var paths = new List<string>();
         var includes = new List<string>();
@@ -29,20 +29,24 @@ class Program
                     break;
                 case "--parallel":
                 case "-p":
-                    if (i + 1 < args.Length && int.TryParse(args[++i], out var p))
-                        parallel = p;
+                    if (i + 1 >= args.Length || !int.TryParse(args[++i], out var p) || p < 1)
+                        return Error("--parallel requires a positive integer value.");
+                    parallel = p;
                     break;
                 case "--include":
-                    if (i + 1 < args.Length)
-                        includes.Add(args[++i]);
+                    if (i + 1 >= args.Length)
+                        return Error("--include requires a pattern argument.");
+                    includes.Add(args[++i]);
                     break;
                 case "--exclude":
-                    if (i + 1 < args.Length)
-                        excludes.Add(args[++i]);
+                    if (i + 1 >= args.Length)
+                        return Error("--exclude requires a pattern argument.");
+                    excludes.Add(args[++i]);
                     break;
                 case "--stdin-filepath":
-                    if (i + 1 < args.Length)
-                        stdinFilePath = args[++i];
+                    if (i + 1 >= args.Length)
+                        return Error("--stdin-filepath requires a path argument.");
+                    stdinFilePath = args[++i];
                     break;
                 case "--version":
                     PrintVersion();
@@ -52,8 +56,9 @@ class Program
                     PrintHelp();
                     return 0;
                 default:
-                    if (!arg.StartsWith('-'))
-                        paths.Add(arg);
+                    if (arg.StartsWith('-'))
+                        return Error($"Unknown option: {arg}");
+                    paths.Add(arg);
                     break;
             }
         }
@@ -82,6 +87,12 @@ class Program
             Console.WriteLine($"Completed in {stopwatch.ElapsedMilliseconds}ms");
 
         return result;
+    }
+
+    static int Error(string message)
+    {
+        Console.Error.WriteLine($"Error: {message}");
+        return 1;
     }
 
     static void PrintVersion()
