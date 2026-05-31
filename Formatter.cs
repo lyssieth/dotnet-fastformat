@@ -186,10 +186,11 @@ class Formatter
         // Build formatting options from .editorconfig
         var workspace = new AdhocWorkspace();
         var options = workspace.Options;
+        EditorConfigOptions? editorConfig = null;
 
         if (filePath != null)
         {
-            var editorConfig = EditorConfigParser.GetOptionsForFile(filePath);
+            editorConfig = EditorConfigParser.GetOptionsForFile(filePath);
             options = ApplyEditorConfigOptions(options, editorConfig);
         }
 
@@ -198,9 +199,8 @@ class Formatter
         var formattedText = formattedRoot.GetText().ToString();
 
         // Handle insert_final_newline manually since Roslyn formatter doesn't always
-        if (filePath != null)
+        if (editorConfig != null)
         {
-            var editorConfig = EditorConfigParser.GetOptionsForFile(filePath);
             if (editorConfig.InsertFinalNewline == true && !formattedText.EndsWith('\n'))
                 formattedText += "\n";
             else if (editorConfig.InsertFinalNewline == false && formattedText.EndsWith('\n'))
