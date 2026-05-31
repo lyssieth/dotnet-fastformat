@@ -283,4 +283,66 @@ public class FormatterTests : IDisposable
         var exit = await Program.Main(new[] { "--stdin-filepath" });
         Assert.Equal(1, exit);
     }
+    [Fact]
+    public async Task Cli_NonProjectDirectory_WithoutForce_Returns1()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"FastFormat.Tests.{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var exit = await Program.Main(new[] { tempDir });
+            Assert.Equal(1, exit);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+    [Fact]
+    public async Task Cli_NonProjectDirectory_WithForce_Returns0()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"FastFormat.Tests.{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var exit = await Program.Main(new[] { "--force", tempDir });
+            Assert.Equal(0, exit);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+    [Fact]
+    public async Task Cli_ProjectDirectory_WithGit_Returns0()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"FastFormat.Tests.{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(Path.Combine(tempDir, ".git"));
+        try
+        {
+            var exit = await Program.Main(new[] { tempDir });
+            Assert.Equal(0, exit);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+    [Fact]
+    public async Task Cli_ProjectDirectory_WithEditorConfig_Returns0()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"FastFormat.Tests.{Guid.NewGuid()}");
+        Directory.CreateDirectory(tempDir);
+        File.WriteAllText(Path.Combine(tempDir, ".editorconfig"), "[*.cs]\n");
+        try
+        {
+            var exit = await Program.Main(new[] { tempDir });
+            Assert.Equal(0, exit);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
 }

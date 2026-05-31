@@ -227,19 +227,17 @@ public class Formatter
         var formattedText = formattedRoot.GetText().ToString();
 
         // Handle insert_final_newline manually since Roslyn formatter doesn't always
-        if (editorConfig != null)
+        var endsWithNewline = !string.IsNullOrEmpty(formattedText) &&
+            (formattedText[^1] == '\n' || formattedText[^1] == '\r');
+        var shouldInsertFinalNewline = editorConfig?.InsertFinalNewline != false;
+        if (shouldInsertFinalNewline && !endsWithNewline)
         {
-            var endsWithNewline = !string.IsNullOrEmpty(formattedText) &&
-                (formattedText[^1] == '\n' || formattedText[^1] == '\r');
-            if (editorConfig.InsertFinalNewline == true && !endsWithNewline)
-            {
-                var newline = editorConfig.NewLine ?? "\n";
-                formattedText += newline;
-            }
-            else if (editorConfig.InsertFinalNewline == false && endsWithNewline)
-            {
-                formattedText = formattedText.TrimEnd('\n', '\r');
-            }
+            var newline = editorConfig?.NewLine ?? "\n";
+            formattedText += newline;
+        }
+        else if (!shouldInsertFinalNewline && endsWithNewline)
+        {
+            formattedText = formattedText.TrimEnd('\n', '\r');
         }
 
         // Handle trim_trailing_whitespace manually

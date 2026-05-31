@@ -21,6 +21,7 @@ dotnet tool install --global FastFormat
 
 ```bash
 # Format files or directories
+# (refuses to run on non-project directories without --force)
 dotnet-fastformat src/
 dotnet-fastformat Program.cs
 
@@ -30,6 +31,9 @@ dotnet-fastformat --check src/
 # Include/exclude patterns
 dotnet-fastformat --exclude "**/*.generated.cs" src/
 dotnet-fastformat --include "src/**/*.cs" --include "tests/**/*.cs" .
+
+# Bypass the project-directory safety check
+dotnet-fastformat --force ~/some-random-dir/
 
 # Stdin -> stdout
 cat Program.cs | dotnet-fastformat
@@ -64,8 +68,17 @@ dotnet-fastformat -p 8 src/
 - `.cs` — C# source files
 - `.csx` — C# script files
 
+## Safety
+
+When run on a directory, FastFormat refuses to recurse unless the directory (or an ancestor) looks like a project — indicated by the presence of `.git`, `.editorconfig`, `*.csproj`, `*.sln`, or `*.slnx`. It also refuses to run directly on `$HOME` or the filesystem root. Use `--force` to bypass this check.
+
 ## Encoding
+
 Files are read and written preserving their existing BOM. Files without a BOM are assumed to be UTF-8.
+
+## Default Behaviors
+
+- **Final newline**: Files are always given a trailing newline unless `.editorconfig` explicitly sets `insert_final_newline = false`.
 
 ## Why is it faster?
 

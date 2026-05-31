@@ -11,6 +11,7 @@ public class Program
         var excludes = new List<string>();
         bool check = false;
         bool verbose = false;
+        bool force = false;
         int? parallel = null;
         string? stdinFilePath = null;
 
@@ -26,6 +27,9 @@ public class Program
                 case "--verbose":
                 case "-v":
                     verbose = true;
+                    break;
+                case "--force":
+                    force = true;
                     break;
                 case "--parallel":
                 case "-p":
@@ -66,6 +70,30 @@ public class Program
         // Detect stdin mode: explicit "-" or piped input with no paths
         bool stdinMode = paths.Remove("-") || (paths.Count == 0 && Console.IsInputRedirected);
 
+        if (!stdinMode && !force)
+        {
+            foreach (var path in paths.Count == 0 ? ["."] : paths)
+            {
+                var fullPath = Path.GetFullPath(path);
+                if (!Directory.Exists(fullPath))
+                    continue;
+                if (IsDangerousDirectory(fullPath))
+                {
+                    Console.Error.WriteLine(
+                        $"Refusing to recursively format '{path}': this directory is too broad.\n" +
+                        "Use --force if you really want to format it.");
+                    return 1;
+                }
+                if (!LooksLikeProject(fullPath))
+                {
+                    Console.Error.WriteLine(
+                        $"Refusing to recursively format '{path}': it does not look like a project directory.\n" +
+                        "Use --force if you really want to format it.");
+                    return 1;
+                }
+            }
+        }
+
         var stopwatch = Stopwatch.StartNew();
         var formatter = new Formatter(check, verbose, parallel, includes, excludes);
 
@@ -87,6 +115,34 @@ public class Program
             Console.WriteLine($"Completed in {stopwatch.ElapsedMilliseconds}ms");
 
         return result;
+    }
+    static bool IsDangerousDirectory(string path)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var root = Path.GetPathRoot(path);
+        return string.Equals(path, home, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(path, root, StringComparison.OrdinalIgnoreCase);
+    }
+
+    static bool LooksLikeProject(string path)
+    {
+        var dir = path;
+        while (!string.IsNullOrEmpty(dir))
+        {
+            if (Directory.Exists(Path.Combine(dir, ".git")))
+                return true;
+            if (File.Exists(Path.Combine(dir, ".editorconfig")))
+                return true;
+            if (Directory.EnumerateFiles(dir, "*.csproj", SearchOption.TopDirectoryOnly).Any())
+                return true;
+            if (Directory.EnumerateFiles(dir, "*.sln", SearchOption.TopDirectoryOnly).Any()
+                || Directory.EnumerateFiles(dir, "*.slnx", SearchOption.TopDirectoryOnly).Any())
+                return true;
+            var parent = Path.GetDirectoryName(dir);
+            if (parent == dir) break;
+            dir = parent;
+        }
+        return false;
     }
 
     static int Error(string message)
@@ -115,6 +171,7 @@ public class Program
         Console.WriteLine("  --include PATTERN      Include files matching glob pattern (repeatable)");
         Console.WriteLine("  --exclude PATTERN      Exclude files matching glob pattern (repeatable)");
         Console.WriteLine("  --stdin-filepath PATH  File path to use for .editorconfig resolution in stdin mode");
+        Console.WriteLine("  --force                Bypass project-directory safety check");
         Console.WriteLine("  --version              Show version");
         Console.WriteLine("  -h, --help             Show this help");
     }
