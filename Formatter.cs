@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Formatting;
@@ -20,12 +21,16 @@ class Formatter
     private readonly bool _check;
     private readonly bool _verbose;
     private readonly int _parallel;
+    private readonly List<string> _includes;
+    private readonly List<string> _excludes;
 
-    public Formatter(bool check, bool verbose, int? parallel)
+    public Formatter(bool check, bool verbose, int? parallel, List<string>? includes = null, List<string>? excludes = null)
     {
         _check = check;
         _verbose = verbose;
         _parallel = parallel ?? Environment.ProcessorCount;
+        _includes = includes ?? new List<string>();
+        _excludes = excludes ?? new List<string>();
     }
 
     public async Task<int> RunStdinAsync(string? filePath)
@@ -46,12 +51,12 @@ class Formatter
 
         if (!files.Any())
         {
-            Console.WriteLine("No .cs files found.");
+            Console.WriteLine("No C# files found.");
             return 0;
         }
 
         if (_verbose)
-            Console.WriteLine($"Found {files.Count} .cs file(s)");
+            Console.WriteLine($"Found {files.Count} C# file(s)");
 
         var lockObj = new object();
         var options = new ParallelOptions { MaxDegreeOfParallelism = _parallel };
@@ -194,6 +199,25 @@ class Formatter
             options = ApplyEditorConfigOptions(options, editorConfig);
         }
 
+        // Organize imports if configured
+        if (editorConfig?.SortSystemDirectivesFirst == true || editorConfig?.SeparateImportDirectiveGroups == true)
+        {
+            var project = workspace.AddProject("temp", LanguageNames.CSharp);
+            var documentInfo = DocumentInfo.Create(
+                DocumentId.CreateNewId(project.Id),
+                Path.GetFileName(filePath ?? "stdin.cs"),
+                filePath: filePath,
+                loader: TextLoader.From(TextAndVersion.Create(sourceText, VersionStamp.Default)));
+            var document = workspace.AddDocument(documentInfo);
+            document = await Microsoft.CodeAnalysis.Formatting.Formatter.OrganizeImportsAsync(document);
+            var organizedRoot = await document.GetSyntaxRootAsync();
+            if (organizedRoot != null)
+            {
+                root = organizedRoot;
+                sourceText = await document.GetTextAsync();
+            }
+        }
+
         var formattedRoot = Microsoft.CodeAnalysis.Formatting.Formatter.Format(root, workspace, options);
 
         var formattedText = formattedRoot.GetText().ToString();
@@ -201,10 +225,24 @@ class Formatter
         // Handle insert_final_newline manually since Roslyn formatter doesn't always
         if (editorConfig != null)
         {
-            if (editorConfig.InsertFinalNewline == true && !formattedText.EndsWith('\n'))
-                formattedText += "\n";
-            else if (editorConfig.InsertFinalNewline == false && formattedText.EndsWith('\n'))
+            var endsWithNewline = !string.IsNullOrEmpty(formattedText) &&
+                (formattedText[^1] == '\n' || formattedText[^1] == '\r');
+            if (editorConfig.InsertFinalNewline == true && !endsWithNewline)
+            {
+                var newline = editorConfig.NewLine ?? "\n";
+                formattedText += newline;
+            }
+            else if (editorConfig.InsertFinalNewline == false && endsWithNewline)
+            {
                 formattedText = formattedText.TrimEnd('\n', '\r');
+            }
+        }
+
+        // Handle trim_trailing_whitespace manually
+        if (editorConfig?.TrimTrailingWhitespace == true)
+        {
+            formattedText = System.Text.RegularExpressions.Regex.Replace(formattedText, @"[ \t]+(\r?\n|\r)", "$1");
+            formattedText = formattedText.TrimEnd(' ', '\t');
         }
 
         return formattedText;
@@ -275,10 +313,25 @@ class Formatter
             }
         }
 
+        if (editorConfig.NewLineBeforeCatch.HasValue)
+            options = options.WithChangedOption(CSharpFormattingOptions.NewLineForCatch, editorConfig.NewLineBeforeCatch.Value);
+
+        if (editorConfig.NewLineBeforeElse.HasValue)
+            options = options.WithChangedOption(CSharpFormattingOptions.NewLineForElse, editorConfig.NewLineBeforeElse.Value);
+
+        if (editorConfig.NewLineBeforeFinally.HasValue)
+            options = options.WithChangedOption(CSharpFormattingOptions.NewLineForFinally, editorConfig.NewLineBeforeFinally.Value);
+
+        if (editorConfig.NewLineBeforeMembersInObjectInitializers.HasValue)
+            options = options.WithChangedOption(CSharpFormattingOptions.NewLineForMembersInObjectInit, editorConfig.NewLineBeforeMembersInObjectInitializers.Value);
+
+        if (editorConfig.NewLineBetweenQueryExpressionClauses.HasValue)
+            options = options.WithChangedOption(CSharpFormattingOptions.NewLineForClausesInQuery, editorConfig.NewLineBetweenQueryExpressionClauses.Value);
+
         return options;
     }
 
-    private static List<string> FindFiles(List<string> paths)
+    private List<string> FindFiles(List<string> paths)
     {
         var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -288,27 +341,73 @@ class Formatter
 
             if (File.Exists(fullPath))
             {
-                if (fullPath.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                if (IsCSharpFile(fullPath))
                     files.Add(fullPath);
             }
             else if (Directory.Exists(fullPath))
             {
-                foreach (var file in Directory.EnumerateFiles(fullPath, "*.cs", SearchOption.AllDirectories))
+                foreach (var pattern in new[] { "*.cs", "*.csx" })
                 {
-                    // Skip common non-source directories
-                    var dir = Path.GetDirectoryName(file) ?? "";
-                    var parts = dir.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    if (parts.Any(p => p.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
-                                       p.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
-                                       p.Equals("node_modules", StringComparison.OrdinalIgnoreCase) ||
-                                       p.Equals(".git", StringComparison.OrdinalIgnoreCase)))
-                        continue;
+                    foreach (var file in Directory.EnumerateFiles(fullPath, pattern, SearchOption.AllDirectories))
+                    {
+                        // Skip common non-source directories
+                        var dir = Path.GetDirectoryName(file) ?? "";
+                        var parts = dir.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                        if (parts.Any(p => p.Equals("bin", StringComparison.OrdinalIgnoreCase) ||
+                                           p.Equals("obj", StringComparison.OrdinalIgnoreCase) ||
+                                           p.Equals("node_modules", StringComparison.OrdinalIgnoreCase) ||
+                                           p.Equals(".git", StringComparison.OrdinalIgnoreCase)))
+                            continue;
 
-                    files.Add(file);
+                        files.Add(file);
+                    }
                 }
             }
         }
 
-        return files.ToList();
+        var result = files.ToList();
+
+        // Apply include patterns
+        if (_includes.Count > 0)
+        {
+            result = result.Where(f => _includes.Any(p => MatchesGlobPattern(f, p))).ToList();
+        }
+
+        // Apply exclude patterns
+        if (_excludes.Count > 0)
+        {
+            result = result.Where(f => !_excludes.Any(p => MatchesGlobPattern(f, p))).ToList();
+        }
+
+        return result;
+    }
+
+    private static bool IsCSharpFile(string path)
+    {
+        return path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+            || path.EndsWith(".csx", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesGlobPattern(string filePath, string pattern)
+    {
+        // Simple glob matching for include/exclude patterns
+        // Supports * and ** wildcards
+        if (pattern == "*")
+            return true;
+
+        var regexPattern = pattern
+            .Replace(".**/", "###DOUBLESTAR###")
+            .Replace("**", "###DOUBLESTAR###")
+            .Replace("*", "###STAR###")
+            .Replace("?", "###QUESTION###")
+            .Replace(".", "\\.")
+            .Replace("###DOUBLESTAR###", ".*")
+            .Replace("###STAR###", "[^/\\]*")
+            .Replace("###QUESTION###", ".");
+
+        regexPattern = "^" + regexPattern + "$";
+        var regex = new System.Text.RegularExpressions.Regex(regexPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var fileName = Path.GetFileName(filePath);
+        return regex.IsMatch(filePath) || regex.IsMatch(fileName);
     }
 }

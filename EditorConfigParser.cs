@@ -9,7 +9,16 @@ class EditorConfigOptions
     public int? TabWidth { get; set; }
     public string? NewLine { get; set; }
     public bool? InsertFinalNewline { get; set; }
+    public bool? TrimTrailingWhitespace { get; set; }
     public string? NewLineBeforeOpenBrace { get; set; }
+    public bool? NewLineBeforeCatch { get; set; }
+    public bool? NewLineBeforeElse { get; set; }
+    public bool? NewLineBeforeFinally { get; set; }
+    public bool? NewLineBeforeMembersInObjectInitializers { get; set; }
+    public bool? NewLineBetweenQueryExpressionClauses { get; set; }
+    public bool? NewLineBeforeWhile { get; set; }
+    public bool? SortSystemDirectivesFirst { get; set; }
+    public bool? SeparateImportDirectiveGroups { get; set; }
 }
 
 class EditorConfigParser
@@ -101,8 +110,35 @@ class EditorConfigParser
                 case "insert_final_newline":
                     result.InsertFinalNewline = kvpValueToBool(kvp.Value);
                     break;
+                case "trim_trailing_whitespace":
+                    result.TrimTrailingWhitespace = kvpValueToBool(kvp.Value);
+                    break;
                 case "csharp_new_line_before_open_brace":
                     result.NewLineBeforeOpenBrace = kvp.Value;
+                    break;
+                case "csharp_new_line_before_catch":
+                    result.NewLineBeforeCatch = kvpValueToBool(kvp.Value);
+                    break;
+                case "csharp_new_line_before_else":
+                    result.NewLineBeforeElse = kvpValueToBool(kvp.Value);
+                    break;
+                case "csharp_new_line_before_finally":
+                    result.NewLineBeforeFinally = kvpValueToBool(kvp.Value);
+                    break;
+                case "csharp_new_line_before_members_in_object_initializers":
+                    result.NewLineBeforeMembersInObjectInitializers = kvpValueToBool(kvp.Value);
+                    break;
+                case "csharp_new_line_between_query_expression_clauses":
+                    result.NewLineBetweenQueryExpressionClauses = kvpValueToBool(kvp.Value);
+                    break;
+                case "csharp_new_line_before_while":
+                    result.NewLineBeforeWhile = kvpValueToBool(kvp.Value);
+                    break;
+                case "dotnet_sort_system_directives_first":
+                    result.SortSystemDirectivesFirst = kvpValueToBool(kvp.Value);
+                    break;
+                case "dotnet_separate_import_directive_groups":
+                    result.SeparateImportDirectiveGroups = kvpValueToBool(kvp.Value);
                     break;
             }
         }
