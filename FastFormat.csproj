@@ -8,8 +8,8 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-fastformat</ToolCommandName>
     <PackageId>FastFormat</PackageId>
-    <Version>1.2.0</Version>
-    <Description>A fast C# formatter that respects .editorconfig rules.</Description>
+    <Version>1.2.1</Version>
+    <Description>A fast C# formatter that supports common formatting-related .editorconfig options.</Description>
     <Authors>Lyssieth</Authors>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
