@@ -7,6 +7,8 @@ class Program
     static async Task<int> Main(string[] args)
     {
         var paths = new List<string>();
+        var includes = new List<string>();
+        var excludes = new List<string>();
         bool check = false;
         bool verbose = false;
         int? parallel = null;
@@ -30,6 +32,14 @@ class Program
                     if (i + 1 < args.Length && int.TryParse(args[++i], out var p))
                         parallel = p;
                     break;
+                case "--include":
+                    if (i + 1 < args.Length)
+                        includes.Add(args[++i]);
+                    break;
+                case "--exclude":
+                    if (i + 1 < args.Length)
+                        excludes.Add(args[++i]);
+                    break;
                 case "--stdin-filepath":
                     if (i + 1 < args.Length)
                         stdinFilePath = args[++i];
@@ -52,7 +62,7 @@ class Program
         bool stdinMode = paths.Remove("-") || (paths.Count == 0 && Console.IsInputRedirected);
 
         var stopwatch = Stopwatch.StartNew();
-        var formatter = new Formatter(check, verbose, parallel);
+        var formatter = new Formatter(check, verbose, parallel, includes, excludes);
 
         int result;
         if (stdinMode)
@@ -91,6 +101,8 @@ class Program
         Console.WriteLine("  -c, --check            Check formatting without making changes");
         Console.WriteLine("  -v, --verbose          Show detailed output");
         Console.WriteLine("  -p, --parallel N       Number of parallel workers (default: processor count)");
+        Console.WriteLine("  --include PATTERN      Include files matching glob pattern (repeatable)");
+        Console.WriteLine("  --exclude PATTERN      Exclude files matching glob pattern (repeatable)");
         Console.WriteLine("  --stdin-filepath PATH  File path to use for .editorconfig resolution in stdin mode");
         Console.WriteLine("  --version              Show version");
         Console.WriteLine("  -h, --help             Show this help");
