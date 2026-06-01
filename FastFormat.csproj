@@ -17,9 +17,12 @@
     <RepositoryUrl>https://github.com/lyssieth/dotnet-fastformat</RepositoryUrl>
     <PackageProjectUrl>https://github.com/lyssieth/dotnet-fastformat</PackageProjectUrl>
     <PackageTags>dotnet;format;csharp;editorconfig;formatter</PackageTags>
-    <PublishAot>true</PublishAot>
-    <InvariantGlobalization>true</InvariantGlobalization>
-    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <!-- NativeAOT disabled: Roslyn Workspaces dependencies publish with AOT warnings
+         and the resulting binary fails the smoke run. Re-enable once the dependency
+         chain supports stable NativeAOT publishing. -->
+    <!-- <PublishAot>true</PublishAot> -->
+    <!-- <InvariantGlobalization>true</InvariantGlobalization> -->
+    <!-- <TrimmerSingleWarn>false</TrimmerSingleWarn> -->
   </PropertyGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
@@ -41,11 +44,12 @@
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- Trimmer root assemblies disabled alongside NativeAOT. -->
+  <!-- <ItemGroup>
     <TrimmerRootAssembly Include="Microsoft.CodeAnalysis.Workspaces" />
     <TrimmerRootAssembly Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
     <TrimmerRootAssembly Include="System.Composition.TypedParts" />
     <TrimmerRootAssembly Include="System.Composition.Hosting" />
-  </ItemGroup>
+  </ItemGroup> -->
 
 </Project>

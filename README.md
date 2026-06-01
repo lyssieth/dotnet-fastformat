@@ -6,7 +6,7 @@ FastFormat is **not a replacement for `dotnet format`**. It is a fast intermedia
 
 ## Performance
 
-`benchmark.sh` creates a synthetic C# project, builds FastFormat in Release mode, attempts a NativeAOT publish, then compares against `dotnet format`.
+`benchmark.sh` creates a synthetic C# project, builds FastFormat in Release mode, then compares against `dotnet format`.
 
 The benchmark covers four runs:
 
@@ -17,7 +17,7 @@ The benchmark covers four runs:
 | Clean check | Formatted files, `--check` |
 | Partial | Dirty files plus `.git`, warm `--cache`, dirty 50% of files, re-format with cache |
 
-If the NativeAOT publish succeeds and the published binary passes a smoke formatting run, the output includes a NativeAOT column. Current Roslyn Workspaces dependencies publish with AOT warnings but fail the smoke run, so NativeAOT is not enabled for packaging yet.
+NativeAOT benchmarking is currently disabled: Roslyn Workspaces dependencies publish with AOT warnings and the resulting binary fails the smoke run. It will be re-enabled once the dependency chain supports stable NativeAOT publishing.
 
 Caveats: this is a synthetic corpus, not a substitute for benchmarking your real solution. `dotnet format` does MSBuild workspace loading and broader analysis; FastFormat intentionally skips that work to be a fast format-on-save/intermediate formatter.
 

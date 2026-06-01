@@ -41,13 +41,17 @@ internal static class BenchmarkRunner
             return 1;
         }
 
-        var nativeAotPath = await TryPublishNativeAotAsync(projectPath, repoRoot, options.Verbose, cancellationToken);
+        // NativeAOT benchmarking disabled: Roslyn Workspaces dependencies publish with
+        // AOT warnings and the resulting binary fails the smoke run. Re-enable once the
+        // dependency chain supports stable NativeAOT publishing.
+        // var nativeAotPath = await TryPublishNativeAotAsync(projectPath, repoRoot, options.Verbose, cancellationToken);
+        string? nativeAotPath = null;
         var hasDotnetFormat = (await RunProcessAsync(new BenchmarkCommand("dotnet", ["format", "--version"], [0]), repoRoot, false, cancellationToken)).Succeeded;
 
-        if (nativeAotPath == null)
-            Console.WriteLine("NativeAOT: unavailable for this run");
-        else
-            Console.WriteLine($"NativeAOT: {nativeAotPath}");
+        // if (nativeAotPath == null)
+        //     Console.WriteLine("NativeAOT: unavailable for this run");
+        // else
+        //     Console.WriteLine($"NativeAOT: {nativeAotPath}");
         Console.WriteLine(hasDotnetFormat ? "dotnet format: available" : "dotnet format: unavailable");
         Console.WriteLine();
 
@@ -69,18 +73,19 @@ internal static class BenchmarkRunner
                     cancellationToken);
 
                 long? native = null;
-                if (nativeAotPath != null)
-                {
-                    native = await MeasureAsync(
-                        scenario,
-                        settings,
-                        tempRoot,
-                        options.Runs,
-                        workspace => BenchmarkCommand.CreateFastFormat(nativeAotPath, scenario, workspace.RootDirectory),
-                        workspace => WarmWithFastFormatAsync(nativeAotPath, workspace, scenario.UseCache, cancellationToken),
-                        options.Verbose,
-                        cancellationToken);
-                }
+                // NativeAOT benchmarking disabled — see comment above.
+                // if (nativeAotPath != null)
+                // {
+                //     native = await MeasureAsync(
+                //         scenario,
+                //         settings,
+                //         tempRoot,
+                //         options.Runs,
+                //         workspace => BenchmarkCommand.CreateFastFormat(nativeAotPath, scenario, workspace.RootDirectory),
+                //         workspace => WarmWithFastFormatAsync(nativeAotPath, workspace, scenario.UseCache, cancellationToken),
+                //         options.Verbose,
+                //         cancellationToken);
+                // }
 
                 long? dotnet = null;
                 if (hasDotnetFormat)
@@ -165,42 +170,43 @@ internal static class BenchmarkRunner
             throw new InvalidOperationException($"Warmup command failed: {command.ExecutablePath} {string.Join(' ', command.Arguments)} exited {result.ExitCode}");
     }
 
-    private static async Task<string?> TryPublishNativeAotAsync(string projectPath, string repoRoot, bool verbose, CancellationToken cancellationToken)
-    {
-        var rid = CurrentRid();
-        if (rid == null)
-            return null;
-
-        Console.WriteLine($"Publishing FastFormat NativeAOT ({rid})...");
-        var publish = await RunProcessAsync(
-            new BenchmarkCommand("dotnet", ["publish", projectPath, "-c", "Release", "-r", rid, "-p:PublishAot=true", "--verbosity", "minimal"], [0]),
-            repoRoot,
-            verbose: true,
-            cancellationToken);
-
-        if (!publish.Succeeded)
-            return null;
-
-        var path = Path.Combine(repoRoot, "bin", "Release", TargetFramework, rid, "publish", ExecutableName("FastFormat"));
-        if (!File.Exists(path))
-            return null;
-
-        var smokeRoot = Path.Combine(Path.GetTempPath(), $"FastFormat.Benchmark.AotSmoke.{Guid.NewGuid():N}");
-        try
-        {
-            var workspace = BenchmarkWorkspace.Create(smokeRoot, new BenchmarkSettings(FileCount: 1, PropertiesPerFile: 1), includeGit: false);
-            var smoke = await RunProcessAsync(BenchmarkCommand.CreateFastFormat(path, BenchmarkScenario.RequiredScenarios[0], workspace.RootDirectory), workspace.RootDirectory, verbose, cancellationToken);
-            if (smoke.Succeeded)
-                return path;
-
-            Console.WriteLine($"NativeAOT smoke test failed with exit code {smoke.ExitCode}; excluding NativeAOT from benchmark output.");
-            return null;
-        }
-        finally
-        {
-            try { Directory.Delete(smokeRoot, recursive: true); } catch { }
-        }
-    }
+    // NativeAOT publish helper disabled alongside NativeAOT benchmarking.
+    // private static async Task<string?> TryPublishNativeAotAsync(string projectPath, string repoRoot, bool verbose, CancellationToken cancellationToken)
+    // {
+    //     var rid = CurrentRid();
+    //     if (rid == null)
+    //         return null;
+    //
+    //     Console.WriteLine($"Publishing FastFormat NativeAOT ({rid})...");
+    //     var publish = await RunProcessAsync(
+    //         new BenchmarkCommand("dotnet", ["publish", projectPath, "-c", "Release", "-r", rid, "-p:PublishAot=true", "--verbosity", "minimal"], [0]),
+    //         repoRoot,
+    //         verbose: true,
+    //         cancellationToken);
+    //
+    //     if (!publish.Succeeded)
+    //         return null;
+    //
+    //     var path = Path.Combine(repoRoot, "bin", "Release", TargetFramework, rid, "publish", ExecutableName("FastFormat"));
+    //     if (!File.Exists(path))
+    //         return null;
+    //
+    //     var smokeRoot = Path.Combine(Path.GetTempPath(), $"FastFormat.Benchmark.AotSmoke.{Guid.NewGuid():N}");
+    //     try
+    //     {
+    //         var workspace = BenchmarkWorkspace.Create(smokeRoot, new BenchmarkSettings(FileCount: 1, PropertiesPerFile: 1), includeGit: false);
+    //         var smoke = await RunProcessAsync(BenchmarkCommand.CreateFastFormat(path, BenchmarkScenario.RequiredScenarios[0], workspace.RootDirectory), workspace.RootDirectory, verbose, cancellationToken);
+    //         if (smoke.Succeeded)
+    //             return path;
+    //
+    //         Console.WriteLine($"NativeAOT smoke test failed with exit code {smoke.ExitCode}; excluding NativeAOT from benchmark output.");
+    //         return null;
+    //     }
+    //     finally
+    //     {
+    //         try { Directory.Delete(smokeRoot, recursive: true); } catch { }
+    //     }
+    // }
 
     private static async Task<ProcessResult> RunProcessAsync(BenchmarkCommand command, string workingDirectory, bool verbose, CancellationToken cancellationToken)
     {
