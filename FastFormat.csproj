@@ -33,7 +33,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Glob" Version="1.1.8" />
+    <PackageReference Include="Glob" Version="1.1.9" />
     <PackageReference Include="Meziantou.Analyzer" Version="3.0.98">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
